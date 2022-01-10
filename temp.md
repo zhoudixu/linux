@@ -61,8 +61,8 @@ nmcli connection up eth1
    ...
    5.]# ./sbin/nginx -s quit #优雅的停止Nginx服务（既处理完所有请求后在停止服务）
      ]# ./sbin/nginx -s stop #强制停止Nginx服务
-     ]# ./sbin/nginx -s reopen #重启Nginx
-     ]# ./sbin/nginx -s reload #程序加载配置文件（nginx.conf），然后以优雅的方式重启Nginx
+     ]# ./sbin/nginx -s reopen #重新打开Nginx日志文件
+     ]# ./sbin/nginx -s reload #程序加载配置文件（nginx.conf）
    ```
 
    
