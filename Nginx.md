@@ -31,5 +31,5 @@ echo "/usr/local/nginx/sbin/nginx" >> rc.d/rc.local
 
 ## Apache
 
-动态网站运行过程中，php脚本需要对网站目录有读写权限，而php-fpm默认启动用户为apache
+​		动态网站运行过程中，php脚本需要对网站目录有读写权限，而php-fpm默认启动用户为apache。 php程序是由php-fpm处理的，php-fpm以apache身份运行。为了让php-fpm程序能对html目录进行读写操作，需要为他授予权限。
 
