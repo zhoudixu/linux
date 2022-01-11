@@ -1,11 +1,9 @@
-hostnamectl set-hostname sql
-nmcli connection modify eth1 ipv4.method manual ipv4.addresses 192.168.2.21/24
+hostnamectl set-hostname nfs
+nmcli connection modify eth1 ipv4.method manual ipv4.addresses 192.168.2.31/24
 nmcli connection down eth1
 nmcli connection up eth1
 
 [10-Jan-2022 08:55:35 UTC] PHP Parse error:  syntax error, unexpected 'class' (T_CLASS), expecting identifier (T_STRING) or variable (T_VARIABLE) or '{' or '$' in /usr/local/nginx/html/wp-content/themes/hello-elementor/includes/elementor-functions.php on line 19
-
-
 
 9. 启动nginx程序时，其命令选项( )可用于查看版本信息？
 
