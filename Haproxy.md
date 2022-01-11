@@ -8,7 +8,7 @@
 yum -y install haproxy
 ```
 
-## 配置
+## 负载均衡配置
 
 ```shell
 vim /etc/haproxy/haproxy.cfg
@@ -32,6 +32,7 @@ LISTEN     0      128          *:80
 listen mon *:1080
     stats refresh 30s
     stats uri /mon
+    stats realm Haproxy Manager
     stats auth admin:admin
 [root@proxy ~]# systemctl restart haproxy
 # 访问http://192.168.4.5:1080/mon。不断访问http://192.168.4.5，在监控页可以看到不同的服务器有连接数。
