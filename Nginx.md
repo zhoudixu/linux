@@ -149,6 +149,8 @@ Failed requests:        0     # 0个失败
 [root@node1 ~]# /usr/local/nginx/sbin/nginx -s reload
 ```
 
+![img](imgs/LINUXNSD_V01SECURITYDAY04_038.png)
+
 - 验证
 
 ```shell
