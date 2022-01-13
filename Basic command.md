@@ -21,3 +21,13 @@ netstat -antpu	#查看端口信息
 tar命令压缩文件时，使用-p可保留文件的权限
 ```
 
+## 查看内核
+
+```shell
+]# uname -r
+4.18.0-193.el8.x86_64
+
+]# cat /proc/version 
+Linux version 4.18.0-193.el8.x86_64 (mockbuild@x86-vm-08.build.eng.bos.redhat.com) (gcc version 8.3.1 20191121 (Red Hat 8.3.1-5) (GCC)) #1 SMP Fri Mar 27 14:35:58 UTC 2020
+```
+
