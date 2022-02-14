@@ -412,7 +412,12 @@ ALTER TABLE studb.stuinfo ADD 住址 char(50) AFTER name;
 ALTER TABLE studb.stuinfo DROP grade;
 ALTER TABLE studb.stuinfo modify id char(10);
 # not Null Default "tim@tedu.cn" 属于约束条件的修改
-ALTER TABLE studb.stuinfo MODIFY mail varchar(20) not Null Default "tim@tedu.cn";
+ALTER TABLE studb.stuinfo MODIFY mail varchar(20) not Null Default "tim@tedu.cn";SELECT name CASE
+WHEN dept_name in ("开发部","测试部","运维部") THEN "技术部"
+WHEN dept_name is null THEN "未设置"
+ELSE "非技术部"
+END AS "部门类型"
+FROM tarena.departments;
 # 调整表头的位置
 ALTER TABLE studb.stuinfo MODIFY age int  AFTER name;
 # 修改表头名为中文
@@ -428,7 +433,11 @@ ALTER TABLE studb.stuinfo RENAME studb.holyshit;
 # 命令格式	CREATE	TABLE 库.表 SELECT 列名 FROM 库.表 [WHERE 条件];
 mysql> CREATE TABLE studb.部门表 SELECT * FROM tarena.departments;
 # 仅仅复制表头，同时原表的key也会复制给新表
-# 命令格式  CREATE  TABLE 库.表   LIKE  库.表;
+# 命令格式  CREATE  TABLE 库.表   LIKE  库.表;SELECT e.employee_id,name,basic,date,grade FROM employees AS e
+INNER JOIN salary AS s ON e.employee_id=s.employee_id
+INNER JOIN wage_grade AS g
+ON low<basic<high
+WHERE YEAR(date)=2018 AND MONTH(date)=12
 mysql> CREATE TABLE studb.部门表2 like tarena.departments;
 ```
 
@@ -1917,6 +1926,15 @@ DROP USER 用户名@"客户端地址";
   +---------------------+
   1 row in set (0.00 sec)
   
+  mysql> SELECT name,IFNULL(shell,"NOSHELL") as "shell判断" FROM tarena.user;
+  +-----------------+----------------+
+  | name            | shell判断      |
+  +-----------------+----------------+
+  | root            | /bin/bash      |
+   haproxy         | /sbin/nologin  |
+  | xixi            | NOSHELL        |
+  | tim             | /bin/bash      |
+  | dachui          | NOSHELL        |
   ```
 
   
@@ -1943,14 +1961,500 @@ DROP USER 用户名@"客户端地址";
   END  
   ```
 
+  ```mysql
+  mysql> SELECT * FROM departments;
+  +---------+-----------+
+  | dept_id | dept_name |
+  +---------+-----------+
+  |       1 | 人事部    |
+  |       2 | 财务部    |
+  |       3 | 运维部    |
+  |       4 | 开发部    |
+  |       5 | 测试部    |
+  |       6 | 市场部    |
+  |       7 | 销售部    |
+  |       8 | 法务部    |
+  +---------+-----------+
+  8 rows in set (0.00 sec)
+  
+  mysql> SELECT dept_id, CASE dept_name                                                          -> when "开发部" THEN "技术部" 
+      -> when "测试部" THEN "技术部" 
+      -> when "运维部" THEN "技术部" 
+      -> WHEN null THEN "未设置"
+      -> ELSE "非技术部" 
+      -> END AS 部门类型
+      -> FROM tarena.departments;
+  +---------+--------------+
+  | dept_id | 部门类型     |
+  +---------+--------------+
+  |       1 | 非技术部     |
+  |       2 | 非技术部     |
+  |       3 | 技术部       |
+  |       4 | 技术部       |
+  |       5 | 技术部       |
+  |       6 | 非技术部     |
+  |       7 | 非技术部     |
+  |       8 | 非技术部     |
+  +---------+--------------+
+  8 rows in set (0.00 sec)
+  
+  mysql> SELECT dept_id,dept_name,CASE
+      -> WHEN dept_name in ("开发部","测试部","运维部") THEN "技术部"
+      -> WHEN dept_name is null THEN "未设置"
+      -> ELSE "非技术部"
+      -> END AS "部门类型"
+      -> FROM tarena.departments;
+  +---------+-----------+--------------+
+  | dept_id | dept_name | 部门类型     |
+  +---------+-----------+--------------+
+  |       1 | 人事部    | 非技术部     |
+  |       2 | 财务部    | 非技术部     |
+  |       3 | 运维部    | 技术部       |
+  |       4 | 开发部    | 技术部       |
+  |       5 | 测试部    | 技术部       |
+  |       6 | 市场部    | 非技术部     |
+  |       7 | 销售部    | 非技术部     |
+  |       8 | 法务部    | 非技术部     |
+  +---------+-----------+--------------+
+  ```
+  
   
 
 ### 查询结果处理
 
 - 概念
-- 排序
+
+  > 对select语句查找的数据再做处理
+
+  语法：
+
+  ```mysql
+  SELECT 字段名列表 FROM 库.表 [WHERE条件] 分组|排序|过滤|分页;
+  ```
+
+  
+
 - 分组
+
+  语法：
+
+  ```
+  SELECT 字段名1(要求出现在group by后面),分组函数()... FROM 表名 WHERE 条件 GROUP BY 字段名1,字段名2;
+  # 1. 查询列表必须是分组函数和出现在GROUP BY后面的字段
+  # 2. 字段中值相同的为一组
+  # 3. 分组后的数据筛选放在having字句中，分组前使用where
+  ```
+
+- 排序
+
+  语法：
+
+  ```mysql
+  SELECT 语句 ORDER BY 字段名 [ASC|DESC];
+  ASC 升序(默认)
+  DESC 降序
+  字段名 通常为数值类型字段
+  ```
+
+  ```mysql
+  mysql> SELECT id,employee_id,date,basic,bonus FROM tarena.salary WHERE employee_id="9" and year(date)=2020 ORDER BY bonus DESC;
+  +------+-------------+------------+-------+-------+
+  | id   | employee_id | date       | basic | bonus |
+  +------+-------------+------------+-------+-------+
+  | 7989 |           9 | 2020-01-10 | 14037 | 11000 |
+  | 8654 |           9 | 2020-06-10 | 14037 | 10000 |
+  | 9452 |           9 | 2020-12-10 | 14738 |  9000 |
+  | 8521 |           9 | 2020-05-10 | 14037 |  8000 |
+  | 8920 |           9 | 2020-08-10 | 14037 |  8000 |
+  | 9186 |           9 | 2020-10-10 | 14037 |  7000 |
+  | 9319 |           9 | 2020-11-10 | 14037 |  7000 |
+  | 9053 |           9 | 2020-09-10 | 14037 |  6000 |
+  | 8122 |           9 | 2020-02-10 | 14037 |  5000 |
+  | 8255 |           9 | 2020-03-10 | 28074 |  4000 |
+  | 8388 |           9 | 2020-04-10 | 14037 |  3000 |
+  | 8787 |           9 | 2020-07-10 | 14037 |  3000 |
+  +------+-------------+------------+-------+-------+
+  
+  mysql> SELECT id,employee_id,date,basic+bonus as total FROM tarena.salary WHERE employee_id="9" and year(date)=2020 ORDER BY total DESC;
+  +------+-------------+------------+-------+
+  | id   | employee_id | date       | total |
+  +------+-------------+------------+-------+
+  | 8255 |           9 | 2020-03-10 | 32074 |
+  | 7989 |           9 | 2020-01-10 | 25037 |
+  | 8654 |           9 | 2020-06-10 | 24037 |
+  | 9452 |           9 | 2020-12-10 | 23738 |
+  | 8521 |           9 | 2020-05-10 | 22037 |
+  | 8920 |           9 | 2020-08-10 | 22037 |
+  | 9186 |           9 | 2020-10-10 | 21037 |
+  | 9319 |           9 | 2020-11-10 | 21037 |
+  | 9053 |           9 | 2020-09-10 | 20037 |
+  | 8122 |           9 | 2020-02-10 | 19037 |
+  | 8388 |           9 | 2020-04-10 | 17037 |
+  | 8787 |           9 | 2020-07-10 | 17037 |
+  +------+-------------+------------+-------+
+  12 rows in set (0.00 sec)
+  
+  ```
+
+  
+
 - 过滤
+
+  语法：
+
+  ```mysql
+  # 对查询到的数据作筛选
+  SQL语句 having 条件;
+  ```
+
+  ```mysql
+  mysql> SELECT COUNT(name),shell FROM tarena.user GROUP BY shell WHERE COUNT(name)>1;
+  ERROR 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'WHERE COUNT(name)>1' at line 1
+  # 仔细理解“对查询到的数据做筛选”，所以上述语句会报错
+  mysql> SELECT COUNT(name),shell FROM tarena.user GROUP BY shell HAVING COUNT(name)>1;
+  +-------------+---------------+
+  | COUNT(name) | shell         |
+  +-------------+---------------+
+  |           8 | NULL          |
+  |           2 | /bin/bash     |
+  |          19 | /sbin/nologin |
+  +-------------+---------------+
+  3 rows in set (0.00 sec)
+  ```
+
+  
+
 - 分页
 
+  > 作用：限制查询结果显示行数(默认显示全部的查询结果)
+
+  语法：
+
+  ```mysql
+  SELECT 语句 LIMIT 数字;	//显示查询结果前多少条记录
+  SELECT 语句 LIMIT 数字1,数字2;	//显示指定范围内的查询记录
+  # 数字1	起始行(0表示第一行)
+  # 数字2	总行数
+  ```
+
+  ```mysql
+  mysql> SELECT name,uid  FROM tarena.user WHERE uid between 10 and 100 ORDER BY uid DESC LIMIT 1;
+  +--------+------+
+  | name   | uid  |
+  +--------+------+
+  | nobody |   99 |
+  +--------+------+
+  ```
+
+  
+
 ## 连接查询
+
+### 概念
+
+> 也叫**多表查询**，常用于查询字段来自于多张表
+>
+> 通过不同连接方式把多张表临时重新组成一张新表对数据做处理
+>
+> 如果直接查询两张表，将会得到笛卡尔积，通过添加有效的条件可以进行查询结果的限定
+
+```mysql
+mysql> SELECT * FROM t1
+    -> ;
++------+------+
+| name | uid  |
++------+------+
+| root |    0 |
+| bin  |    1 |
++------+------+
+
+mysql> SELECT * FROM t2;
++--------+------+---------------+
+| name   | uid  | shell         |
++--------+------+---------------+
+| root   |    0 | /bin/bash     |
+| bin    |    1 | /sbin/nologin |
+| daemon |    2 | /sbin/nologin |
+| adm    |    3 | /sbin/nologin |
++--------+------+---------------+
+
+# 未进行查询结果限定时的结果：
+mysql> SELECT * FROM t1,t2;
++------+------+--------+------+---------------+
+| name | uid  | name   | uid  | shell         |
++------+------+--------+------+---------------+
+| root |    0 | root   |    0 | /bin/bash     |
+| bin  |    1 | root   |    0 | /bin/bash     |
+| root |    0 | bin    |    1 | /sbin/nologin |
+| bin  |    1 | bin    |    1 | /sbin/nologin |
+| root |    0 | daemon |    2 | /sbin/nologin |
+| bin  |    1 | daemon |    2 | /sbin/nologin |
+| root |    0 | adm    |    3 | /sbin/nologin |
+| bin  |    1 | adm    |    3 | /sbin/nologin |
++------+------+--------+------+---------------+
+8 rows in set (0.00 sec)
+
+# 进行查询结果限定后的结果
+mysql> SELECT * FROM t1,t2 WHERE t1.uid = t2.uid;
++------+------+------+------+---------------+
+| name | uid  | name | uid  | shell         |
++------+------+------+------+---------------+
+| root |    0 | root |    0 | /bin/bash     |
+| bin  |    1 | bin  |    1 | /sbin/nologin |
++------+------+------+------+---------------+
+2 rows in set (0.00 sec)
+
+```
+
+
+
+### 分类
+
+#### 内连接
+
+> 1. 等值连接：使用相等判断做连接条件
+> 2. 非等值连接：连接条件不是相等判断
+> 3. 自连接：自己连接自己，把1张表当做2张表（需要给表定义别名）
+
+语法：
+
+```mysql
+SELECT  字段列表
+FROM  表1  别名
+INNER JOIN  表2  别名  ON 连接条件
+INNER JOIN  表3  别名  ON 连接条件
+[WHERE 筛选条件]
+[GROUP BY 分组]
+[HAVING 分组后筛选]
+[ORDER BY 排序列表]
+
+# 如果SELECT查询的字段名在两张表中均有且名字一样，必须使用别名，否则SELECT时会报错
+
+# 一个HAVING子句必须位于GROUP BY子句之后，并位于ORDER BY子句之前。
+```
+
+
+
+```mysql
+mysql> SELECT name,SUM(basic+bonus) as total FROM employees
+    -> INNER JOIN salary
+    -> ON employees.employee_id=salary.employee_id
+    -> WHERE YEAR(salary.date)=2018
+    -> GROUP BY name
+    -> ORDER BY total DESC
+    -> LIMIT 1;
++--------+--------+
+| name   | total  |
++--------+--------+
+| 和林   | 374923 |
++--------+--------+
+1 row in set (0.00 sec)
+
+mysql> SELECT name,employee_id,dept_name FROM tarena.employees INNER JOIN tarena.departments ON tarena.employees.dept_id=tarena.departments.dept_id WHERE employee_id=8;
++--------+-------------+-----------+
+| name   | employee_id | dept_name |
++--------+-------------+-----------+
+| 汪云   |           8 | 人事部    |
++--------+-------------+-----------+
+1 row in set (0.00 sec)
+
+mysql> SELECT e.dept_id,employee_id,name,d.dept_name FROM employees AS e
+    -> INNER JOIN departments AS d
+    -> ON e.dept_id=d.dept_id
+    -> LIMIT 3;
++---------+-------------+-----------+-----------+
+| dept_id | employee_id | name      | dept_name |
++---------+-------------+-----------+-----------+
+|       1 |           1 | 梁伟      | 人事部    |
+|       1 |           2 | 郭岩      | 人事部    |
+|       1 |           3 | 李玉英    | 人事部    |
++---------+-------------+-----------+-----------+
+3 rows in set (0.00 sec)
+
+# 等值连接-查询2018年，员工号为11号的员工每个月的工资
+mysql> SELECT name,s.basic+s.bonus AS total,CONCAT(YEAR(s.date),"-",MONTH(s.date)) AS 日期 FROM employees AS e
+    -> INNER JOIN salary AS s
+    -> ON e.employee_id=s.employee_id
+    -> WHERE e.employee_id=11 AND year(s.date)=2018;
++-----------+-------+---------+
+| name      | total | 日期    |
++-----------+-------+---------+
+| 郭兰英    | 18206 | 2018-1  |
+| 郭兰英    | 19206 | 2018-2  |
+| 郭兰英    | 18206 | 2018-3  |
+| 郭兰英    | 19206 | 2018-4  |
+| 郭兰英    | 18206 | 2018-5  |
+| 郭兰英    | 19206 | 2018-6  |
+| 郭兰英    | 27206 | 2018-7  |
+| 郭兰英    | 27206 | 2018-8  |
+| 郭兰英    | 19206 | 2018-9  |
+| 郭兰英    | 21206 | 2018-10 |
+| 郭兰英    | 22206 | 2018-11 |
+| 郭兰英    | 25016 | 2018-12 |
++-----------+-------+---------+
+
+# 等值连接-查询2018年总工资排名前三的员工
+mysql> SELECT e.employee_id,name,SUM(s.basic+s.bonus) AS total FROM employees AS e
+    -> INNER JOIN salary AS s
+    -> ON e.employee_id=s.employee_id
+    -> WHERE year(s.date)=2018
+    -> GROUP BY e.employee_id
+    -> ORDER BY total DESC
+    -> LIMIT 3;
++-------------+-----------+--------+
+| employee_id | name      | total  |
++-------------+-----------+--------+
+|          31 | 刘海燕    | 374923 |
+|         117 | 和林      | 374923 |
+|          37 | 朱淑兰    | 362981 |
++-------------+-----------+--------+
+3 rows in set (0.00 sec)
+
+SELECT e.employee_id,name,SUM(s.basic+s.bonus) AS total FROM employees AS e
+INNER JOIN salary AS s
+ON e.employee_id=s.employee_id
+WHERE year(s.date)=2018
+GROUP BY e.employee_id
+HAVING total > 300000
+ORDER BY total DESC;
+
+# 非等值连接-查询2018年12月员工基本工资的级别
+mysql> CREATE TABLE wage_grade(
+    -> id int primary key auto_increment,
+    -> grade char(1),low int,high int);
+Query OK, 0 rows affected (0.26 sec)
+mysql> INSERT INTO wage_grade(grade,low,high) VALUES ("A",5000,8000), ("B",8001,10000), ("C",10001,15000), ("D",15001,20000), ("E",20001,1000000);
+Query OK, 5 rows affected (0.03 sec)
+Records: 5  Duplicates: 0  Warnings: 0
+
+mysql> SELECT * FROM wage_grade;
++----+-------+-------+---------+
+| id | grade | low   | high    |
++----+-------+-------+---------+
+|  1 | A     |  5000 |    8000 |
+|  2 | B     |  8001 |   10000 |
+|  3 | C     | 10001 |   15000 |
+|  4 | D     | 15001 |   20000 |
+|  5 | E     | 20001 | 1000000 |
++----+-------+-------+---------+
+5 rows in set (0.00 sec)
+
+mysql> SELECT employee_id,basic,grade,low,high,date FROM salary
+    -> INNER JOIN wage_grade
+    -> ON basic between low and high
+    -> WHERE YEAR(date)=2018 and MONTH(date)=12;
++-------------+-------+-------+-------+---------+------------+
+| employee_id | basic | grade | low   | high    | date       |
++-------------+-------+-------+-------+---------+------------+
+|           1 | 17016 | D     | 15001 |   20000 | 2018-12-10 |
+|           2 | 20662 | E     | 20001 | 1000000 | 2018-12-10 |
+|           3 |  9724 | B     |  8001 |   10000 | 2018-12-10 |
+|           4 | 17016 | D     | 15001 |   20000 | 2018-12-10 |
+...
+|         133 |  6076 | A     |  5000 |    8000 | 2018-12-10 |
++-------------+-------+-------+-------+---------+------------+
+
+# 非等值连接-统计2018年12月的每个工资级别中的人数
+mysql> SELECT COUNT(employee_id),grade FROM salary INNER JOIN wage_grade ON basic between low and high WHERE YEAR(date)=2018 and MONTH(date)=12 GROUP BY grade;
++--------------------+-------+
+| COUNT(employee_id) | grade |
++--------------------+-------+
+|                 13 | A     |
+|                 12 | B     |
+|                 30 | C     |
+|                 32 | D     |
+|                 33 | E     |
++--------------------+-------+
+5 rows in set (0.00 sec)
+
+# 自连接查询的使用示例：
+mysql> SELECT e1.employee_id,e1.name,e2.hire_date,e2.birth_date FROM employees AS e1
+    -> INNER JOIN employees AS e2
+    -> ON MONTH(e1.hire_date) = MONTH(e2.birth_date)
+    -> AND e1.employee_id = e2.employee_id;
++-------------+-----------+------------+------------+
+| employee_id | name      | hire_date  | birth_date |
++-------------+-----------+------------+------------+
+|           3 | 李玉英    | 2012-01-19 | 1974-01-25 |
+|           5 | 郑静      | 2018-02-03 | 1997-02-14 |
+|          62 | 林刚      | 2007-09-19 | 1990-09-23 |
+|          76 | 刘桂兰    | 2003-10-14 | 1982-10-11 |
+|         102 | 张亮      | 2015-08-10 | 1996-08-25 |
+|         123 | 许欣      | 2011-09-09 | 1982-09-25 |
+|         131 | 王荣      | 2019-11-14 | 1999-11-22 |
++-------------+-----------+------------+------------+
+
+SELECT e1.employee_id,e1.name,e2.hire_date,e2.birth_date FROM employees AS e1
+INNER JOIN employees AS e2
+ON MONTH(e1.hire_date) = MONTH(e2.birth_date)
+AND e1.employee_id = e2.employee_id
+```
+
+
+
+#### 外连接
+
+> 分类：
+>
+> 1. 左外连接 LEFT JOIN
+>
+> 2. 右外连接 RIGHT JOIN
+>
+> 3. 全外连接（mysql不支持，可以使用UNION实现相同的效果）
+>
+>    **常用于查询一个表中有，而另一个表中没有的记录，用来比较两张表数据的不同**
+
+##### 左连接
+
+> 左边表的记录全都显示出来 
+>
+> 右边的表只显示与条件匹配记录，右边表比左边表少的记录使用NULL匹配
+
+```mysql
+# 1. 部门表添加三个部门
+mysql> INSERT INTO tarena.departments(dept_name) VALUES("行政部"),("公关部"),("小卖部");
+Query OK, 3 rows affected (0.03 sec)
+Records: 3  Duplicates: 0  Warnings: 0
+
+mysql> DESC departments;
++-----------+-------------+------+-----+---------+----------------+
+| Field     | Type        | Null | Key | Default | Extra          |
++-----------+-------------+------+-----+---------+----------------+
+| dept_id   | int(4)      | NO   | PRI | NULL    | auto_increment |
+| dept_name | varchar(10) | YES  |     | NULL    |                |
++-----------+-------------+------+-----+---------+----------------+
+2 rows in set (0.00 sec)
+
+# 2. 员工表中添加三名员工
+mysql> INSERT INTO employees(name) VALUES("bob"),("tom"),("lili");
+Query OK, 3 rows affected (0.03 sec)
+
+# 3. 查询没有人员的部门并显示
+mysql> SELECT d.dept_name FROM departments AS d LEFT JOIN employees AS e ON e.dept_id = d.dept_id WHERE e.name is null;
++-----------+
+| dept_name |
++-----------+
+| 行政部    |
+| 公关部    |
+| 小卖部    |
++-----------+
+```
+
+
+
+##### 右连接
+
+> 右边表的记录全都显示出来 
+>
+> 左边的表只显示与条件匹配记录，左表比右边表少的记录使用NULL 匹配
+
+##### 全连接
+
+#### 联合查询
+
+#### 子查询
+
+#### 多表更新&删除
+
+
+
