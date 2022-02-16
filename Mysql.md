@@ -3372,6 +3372,66 @@ mysql> SHOW SESSION VARIABLES LIKE "connect_timeout";
 
 ##### 局部变量
 
+> 只在存储执行过程中有效，存储过程执行结束后局部变量消失
+
+![image-20220216111352894](imgs/image-20220216111352894.png)
+
+```mysql
+delimiter //
+create procedure tarena.p2()
+begin
+declare x int default 9;
+declare y char(10);
+set y = "tim";
+select x,y;
+set x = 20;
+select x,y;
+end
+//
+delimiter ;
+
+mysql> call tarena.p2();
++------+------+
+| x    | y    |
++------+------+
+|    9 | tim  |
++------+------+
+1 row in set (0.00 sec)
+
++------+------+
+| x    | y    |
++------+------+
+|   20 | tim  |
++------+------+
+1 row in set (0.00 sec)
+
+Query OK, 0 rows affected (0.00 sec)
+
+# 查看存储代码
+mysql> SELECT body FROM mysql.proc WHERE type="procedure" AND name="p2" \G
+*************************** 1. row ***************************
+body: begin
+declare x int default 9;
+declare y char(10);
+set y = "tim";
+select x,y;
+set x = 20;
+select x,y;
+end
+1 row in set (0.00 sec)
+
+# 存储执行完后，变量被释放
+mysql> SELECT @x,@y;
++------+------+
+| @x   | @y   |
++------+------+
+| NULL | NULL |
++------+------+
+1 row in set (0.00 sec)
+```
+
+
+
 ##### 用户变量
 
 ![image-20220216104748958](imgs/image-20220216104748958.png)
@@ -3418,6 +3478,45 @@ mysql> SELECT @user_num;
 | sync      |
 +-----------+
 1 row in set (0.00 sec)
+```
+
+### 存储过程参数
+
+![image-20220216113956794](imgs/image-20220216113956794.png)
+
+```mysql
+# 1. in类型的参数负责把数据传给存储过程
+delimiter //
+create procedure tarena.p3(in dept_no int)
+begin
+select dept_id,count(*) as 总人数 from
+tarena.employees where dept_id=dept_no group by dept_id;
+end
+//
+delimiter ;
+
+mysql> call tarena.p3();	# 不给参数会报错
+ERROR 1318 (42000): Incorrect number of arguments for PROCEDURE tarena.p3; expected 1, got 0
+mysql> call tarena.p3(1);	# 查看部门编号1  的员工人数
++---------+-----------+
+| dept_id | 总人数    |
++---------+-----------+
+|       1 |         8 |
++---------+-----------+
+1 row in set (0.00 sec)
+
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> call tarena.p3(5);	# 查看部门编号5  的员工人数
++---------+-----------+
+| dept_id | 总人数    |
++---------+-----------+
+|       5 |        12 |
++---------+-----------+
+1 row in set (0.00 sec)
+
+Query OK, 0 rows affected (0.00 sec)
+
 ```
 
 
