@@ -1955,7 +1955,7 @@ DROP USER 用户名@"客户端地址";
   语法格式2
   CASE              
   WHEN  判断条件 THEN 结果 
-  WHEN  判断条件  THEN 结果  
+  WHEN  判断条件 THEN 结果  
   WHEN  判断条件 THEN 结果 
   ELSE 结果  
   END  
@@ -1977,7 +1977,7 @@ DROP USER 用户名@"客户端地址";
   +---------+-----------+
   8 rows in set (0.00 sec)
   
-  mysql> SELECT dept_id, CASE dept_name                                                          -> when "开发部" THEN "技术部" 
+  mysql> SELECT dept_id, CASE dept_name                                 -> when "开发部" THEN "技术部" 
       -> when "测试部" THEN "技术部" 
       -> when "运维部" THEN "技术部" 
       -> WHEN null THEN "未设置"
@@ -3517,18 +3517,306 @@ mysql> call tarena.p3(5);	# 查看部门编号5  的员工人数
 
 Query OK, 0 rows affected (0.00 sec)
 
+# 2. out类型的参数  负责接收存储过程的处理结果
+delimiter //
+create procedure tarena.p4(in emp_name char(10),out mail char(20))
+begin
+select email into mail from employees where name=emp_name;
+end
+//
+delimiter ;
+# 注意： 参数的名字不要和字段名相同，否则存储过程在执行的时候会报错
+
+mysql> CALL tarena.p4("tim",@x);	# 使用自定义变量x获取out参数的返回值
+Query OK, 1 row affected (0.00 sec)
+mysql> SELECT @x;
++-----------------+
+| @x              |
++-----------------+
+| 12345678@qq.com |
++-----------------+
+1 row in set (0.00 sec)
+
+mysql> CALL tarena.p4("王倩",@m);
+ERROR 1366 (HY000): Incorrect string value: '\xE7\x8E\x8B\xE5\x80\xA9' for column 'emp_name' at row 1
+# 存储过程 归属的库 使用的不是中文字符集时 ,创建的存储过程 无法识别中文
+ALTER DATABASE tarena DEFAULT CHARSET utf8mb4;	#修改库的字符集
+mysql> drop procedure tarena.p4;
+# 删除之前的存储过程然后重新创建 ， 因为字符集 对已经存储的存储过程无效
+
+mysql> CALL tarena.p4("王倩",@m);
+Query OK, 0 rows affected, 1 warning (0.00 sec)
+
+mysql> SELECT @m;
++------+
+| @m   |
++------+
+| NULL |
++------+
+1 row in set (0.00 sec)	# 对不存在的信息进行查询，返回为NULL
+
+mysql> CALL tarena.p4("王荣",@m);
+Query OK, 1 row affected (0.00 sec)
+
+mysql> SELECT @m;
++------------------+
+| @m               |
++------------------+
+| wangrong@tedu.cn |
++------------------+
+1 row in set (0.00 sec)
+
+# 3. 使用INOUT参数(既有in参数的功能又有out参数的功能)
+delimiter //
+create procedure tarena.p5(inout x int)
+begin
+set x=x*2;
+end
+//
+delimiter ;
+
+mysql> SET @V=100;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> CALL tarena.p5(@V);
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SELECT @V;
++------+
+| @V   |
++------+
+|  200 |
++------+
+1 row in set (0.00 sec)
 ```
 
 
 
 ## 流程控制
 
+![image-20220216153627211](imgs/image-20220216153627211.png)
+
 ### 顺序结构
+
+![image-20220216153656662](imgs/image-20220216153656662.png)
+
+```mysql
+# 判断各部门是属于技术部还是非技术部
+delimiter //
+use tarena;
+create procedure tarena.deptype(in no int,out dept_type char(10))
+begin
+declare type varchar(10);
+select dept_name into type from departments where dept_id=no;
+if type="运维部" then
+set dept_type="技术部";
+elseif type="开发部" then
+set dept_type="技术部";
+elseif type="测试部" then
+set dept_type="技术部";
+else
+set dept_type="非技术部";
+end if;
+end
+//
+delimiter ;
+
+mysql> CALL deptype(5,@d);
+Query OK, 1 row affected (0.00 sec)
+
+mysql> SELECT @d;
++-----------+
+| @d        |
++-----------+
+| 技术部    |
++-----------+
+1 row in set (0.00 sec)
+
+
+# 针对上述存储过程的简化版，可以实现相同的需求
+delimiter //
+create procedure tarena.deptype(in no int,out dept_type char(10))
+begin
+declare type varchar(10);
+select dept_name into type from departments where dept_id=no;
+if type in ("运维部","开发部","测试部") then
+set dept_type="技术部";
+else
+set dept_type="非技术部";
+end if;
+end
+//
+delimiter ;
+
+mysql> CALL tarena.deptype(5,@d);
+Query OK, 1 row affected (0.00 sec)
+
+mysql> select @d;
++-----------+
+| @d        |
++-----------+
+| 技术部    |
++-----------+
+1 row in set (0.00 sec)
+
+```
+
+
 
 ### 分支结构
 
+![image-20220216160537415](imgs/image-20220216160537415.png)
+
+```mysql
+
+```
+
+
+
 ### 循环结构
+
+
+
+![image-20220216161929605](imgs/image-20220216161929605.png)
+
+```mysql
+# 1. while 循环结构的例子：
+delimiter //
+create procedure tarena.while_pro(in i int)
+begin
+declare j int default 1;
+while j<i do
+	insert into tarena.departments(dept_name) VALUES("hr");
+	set j=j+1;
+end while;
+end
+//
+delimiter ;
+
+mysql> CALL tarena.while_pro(3);
+Query OK, 1 row affected (0.05 sec)
+
+mysql> SELECT * FROM tarena.departments WHERE dept_name="hr";
++---------+-----------+
+| dept_id | dept_name |
++---------+-----------+
+|      12 | hr        |
+|      13 | hr        |
++---------+-----------+
+2 rows in set (0.00 sec)
+
+mysql> CALL tarena.while_pro(0);	# 当首次判断条件就没成立，while是不会执行的
+Query OK, 0 rows affected (0.00 sec)
+
+
+# 2. loop 没有判断条件,重复执行同一段代码,只要不人为结束就一直执行,被称为死循环
+delimiter //
+create procedure tarena.loop2()
+begin
+declare i int default 1;
+loop
+	select sleep(5),i;
+	set i=i+1;
+end loop;
+end
+//
+delimiter ;
+
+
+mysql> SHOW PROCESSLIST;	# 在mysql登录状态下 查看正在执行的命jkj令
++----+------+-----------+--------+---------+------+------------+-------------------+
+| Id | User | Host      | db     | Command | Time | State      | Info              |
++----+------+-----------+--------+---------+------+------------+-------------------+
+|  3 | root | localhost | tarena | Query   |    3 | User sleep | select sleep(5),i |
+| 11 | root | localhost | NULL   | Query   |    0 | starting   | SHOW PROCESSLIST  |
++----+------+-----------+--------+---------+------+------------+-------------------+
+2 rows in set (0.00 sec)
+
+mysql> KILL 3;	# 在mysql登录状态下终止命令的执行
+Query OK, 0 rows affected (0.01 sec)
+
+# 3. repeat
+# 因为先执行循环体 ，再判断条件（当判断条件成立时继续执行循环体（判断条件不成立为为真），反之结束循环)
+delimiter //
+create procedure tarena.repeat_pro(in i int)
+begin
+	declare j int default 1;
+	repeat
+		set j=j+1;
+		insert into tarena.departments(dept_name) VALUES("sales");
+		until j>i
+	end repeat;
+end
+//
+delimiter ;
+
+mysql> SELECT * FROM departments WHERE dept_name="sales";
++---------+-----------+
+| dept_id | dept_name |
++---------+-----------+
+|      14 | sales     |
+|      15 | sales     |
+|      16 | sales     |
++---------+-----------+
+3 rows in set (0.00 sec)
+
+
+delimiter //
+create procedure tarena.repeat_pro(in i int)
+begin
+	declare j int default 1;
+	repeat
+		set j=j+1;
+		insert into tarena.departments(dept_name) VALUES(concat("sales",j));
+		until j>i
+	end repeat;
+end
+//
+delimiter ;
+
+mysql> select * from tarena.departments where dept_name like "%sales%";
++---------+-----------+
+| dept_id | dept_name |
++---------+-----------+
+|      14 | sales     |
+|      15 | sales     |
+|      16 | sales     |
+|      17 | sales2    |
+|      18 | sales3    |
+|      19 | sales4    |
++---------+-----------+
+6 rows in set (0.00 sec)
+
+
+```
+
+
 
 ### 循环控制语句
 
-#### 
+> leave  (结束循环)
+>
+> iterate 终止当前循环并开始下次循环
+
+![image-20220216173255496](imgs/image-20220216173255496.png)
+
+```mysql
+delimiter //
+create procedure tarena.p0()
+begin
+declare i int default 0;
+p:loop
+	set i=i+1;
+	if i=3 then
+		iterate p;
+	end if;
+	if i =7 then
+		leave p;
+	end if;
+	select i;
+end loop p;
+end
+//
+delimiter ;
+```
+
