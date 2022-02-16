@@ -2429,7 +2429,7 @@ mysql> DESC departments;
 mysql> INSERT INTO employees(name) VALUES("bob"),("tom"),("lili");
 Query OK, 3 rows affected (0.03 sec)
 
-# 3. 查询没有人员的部门并显示
+# 3. 查询没有人员的部门并显示-LEFT JOIN
 mysql> SELECT d.dept_name FROM departments AS d LEFT JOIN employees AS e ON e.dept_id = d.dept_id WHERE e.name is null;
 +-----------+
 | dept_name |
@@ -2438,6 +2438,7 @@ mysql> SELECT d.dept_name FROM departments AS d LEFT JOIN employees AS e ON e.de
 | 公关部    |
 | 小卖部    |
 +-----------+
+
 ```
 
 
@@ -2448,13 +2449,987 @@ mysql> SELECT d.dept_name FROM departments AS d LEFT JOIN employees AS e ON e.de
 >
 > 左边的表只显示与条件匹配记录，左表比右边表少的记录使用NULL 匹配
 
+```mysql
+#  查询没有部门的人员并显示-RIGHT JOIN
+mysql> select e.name,dept_name from departments as d right join employees as e on d.dept_id=e.dept_id where dept_name is null;
++------+-----------+
+| name | dept_name |
++------+-----------+
+| bob  | NULL      |
+| tom  | NULL      |
+| lili | NULL      |
++------+-----------+
+3 rows in set (0.00 sec)
+```
+
+
+
 ##### 全连接
 
 #### 联合查询
 
+> 用于合并查询结果
+>
+> 可以合并同一张表的查询记录(不同表的查询记录也可以合并)
+>
+> 要求查询时，多个SELECT语句的检索到的字段数量必须一致
+>
+> 每一条记录的个字段类型和顺序最好是一致的
+>
+> UNION关键字默认去重，可以使用UNION ALL包含重复项
+
+语法：
+
+```mysql
+(SELECT语句) UNION (SELECT语句);
+(SELECT语句) UNION ALL (SELECT语句);
+```
+
+```mysql
+# 简单示例
+mysql> (SELECT "def" AS "表头")UNION(SELECT "def");
++--------+
+| 表头   |
++--------+
+| def    |
++--------+
+1 row in set (0.00 sec)
+
+mysql> (SELECT "def" AS "表头")UNION ALL(SELECT "def");
++--------+
+| 表头   |
++--------+
+| def    |
+| def    |
++--------+
+2 rows in set (0.00 sec)
+
+# 查询员工出生日期在1972年或者大于等于2000年的
+mysql> (SELECT name,birth_date FROM tarena.employees WHERE YEAR(birth_date)=1972) UNION (SELECT name,birth_date FROM tarena.employees WHERE YEAR(birth_date)>=2000);
++-----------+------------+
+| name      | birth_date |
++-----------+------------+
+| 张健      | 1972-06-07 |
+| 王莉      | 1972-12-19 |
+| 郑秀珍    | 1972-09-01 |
+| 徐金凤    | 1972-01-31 |
+| 胡瑜      | 1972-04-09 |
+| 李柳      | 1972-10-14 |
+| 陈斌      | 2000-01-22 |
+| 胡秀云    | 2000-05-14 |
+| 张倩      | 2000-04-27 |
+| 王璐      | 2000-02-01 |
+| 蒋秀芳    | 2000-04-27 |
+| 张宇      | 2000-07-16 |
+| 陶红      | 2000-02-21 |
+| 游静      | 2000-02-14 |
++-----------+------------+
+14 rows in set (0.01 sec)
+
+# 一起输出user表中uid号最小和uid号最大的用户名和uid号
+mysql> SELECT MIN(uid) FROM tarena.user;
++----------+
+| MIN(uid) |
++----------+
+|        0 |
++----------+
+1 row in set (0.00 sec)
+
+mysql> SELECT MAX(uid) FROM tarena.user;
++----------+
+| MAX(uid) |
++----------+
+|    65534 |
++----------+
+1 row in set (0.00 sec)
+
+mysql> (SELECT name,uid FROM tarena.user WHERE uid=(SELECT MIN(uid) FROM tarena.user))
+    -> UNION
+    -> (SELECT name,uid FROM tarena.user WHERE uid=(SELECT MAX(uid) FROM tarena.user));
++-----------+-------+
+| name      | uid   |
++-----------+-------+
+| root      |     0 |
+| nfsnobody | 65534 |
++-----------+-------+
+2 rows in set (0.00 sec)
+```
+
+
+
 #### 子查询
+
+> 也叫嵌套查询，是指在一个完整的查询语句中，嵌套若干个不同功能的小查询，从而一起完成复杂查询的一种编写形式。
+>
+> 子查询常使用的位置：
+>
+> 1. SELECT之后
+> 2. FROM之后
+> 3. WHERE或者HAVING之后
+
+```mysql
+# 1. 查询部门名为“运维部”的员工信息
+mysql> SELECT * FROM tarena.employees WHERE dept_id=(SELECT dept_id FROM tarena.departments WHERE dept_name="运维部");
++-------------+-----------+------------+------------+--------------------+--------------+---------+
+| employee_id | name      | hire_date  | birth_date | email              | phone_number | dept_id |
++-------------+-----------+------------+------------+--------------------+--------------+---------+
+|          14 | 廖娜      | 2012-05-20 | 1982-06-22 | liaona@tarena.com  | 15827928192  |       3 |
+|          15 | 窦红梅    | 2018-03-16 | 1971-09-09 | douhongmei@tedu.cn | 15004739483  |       3 |
+|          16 | 聂想      | 2018-09-09 | 1999-06-05 | niexiang@tedu.cn   | 15501892446  |       3 |
+|          17 | 陈阳      | 2004-09-16 | 1991-04-10 | chenyang@tedu.cn   | 15565662056  |       3 |
+|          18 | 戴璐      | 2001-11-30 | 1975-05-16 | dailu@tedu.cn      | 13465236095  |       3 |
+|          19 | 陈斌      | 2019-07-04 | 2000-01-22 | chenbin@tarena.com | 13621656037  |       3 |
++-------------+-----------+------------+------------+--------------------+--------------+---------+
+6 rows in set (0.00 sec)
+
+# 2. 查询2018年12月所有比100号员工基本工资高的工资信息
+mysql> SELECT date,s.employee_id,basic,name FROM salary AS s 
+    -> INNER JOIN employees AS e ON s.employee_id=e.employee_id
+    -> WHERE YEAR(date)=2018 AND MONTH(date)=12 AND basic>(SELECT basic FROM salary WHERE employee_id=100 and YEAR(date)=2018 AND MONTH(date)=12) LIMIT 3;
++------------+-------------+-------+--------+
+| date       | employee_id | basic | name   |
++------------+-------------+-------+--------+
+| 2018-12-10 |           1 | 17016 | 梁伟   |
+| 2018-12-10 |           2 | 20662 | 郭岩   |
+| 2018-12-10 |           4 | 17016 | 张健   |
++------------+-------------+-------+--------+
+3 rows in set (0.00 sec)
+
+# 3. 查找部门里人数比开发部少的部门的信息
+mysql> SELECT d.dept_name AS 部门名称,COUNT(name) AS 部门人数,e.dept_id AS 部门编号 FROM tarena.employees AS e
+    -> INNER JOIN tarena.departments AS d ON e.dept_id=d.dept_id
+    -> GROUP BY e.dept_id 
+    -> HAVING COUNT(name)<(SELECT COUNT(name) FROM tarena.employees WHERE dept_id=(SELECT dept_id FROM tarena.departments WHERE dept_name="开发部"));
++--------------+--------------+--------------+
+| 部门名称     | 部门人数     | 部门编号     |
++--------------+--------------+--------------+
+| 人事部       |            8 |            1 |
+| 财务部       |            5 |            2 |
+| 运维部       |            6 |            3 |
+| 测试部       |           12 |            5 |
+| 市场部       |            9 |            6 |
+| 销售部       |           35 |            7 |
+| 法务部       |            3 |            8 |
++--------------+--------------+--------------+
+7 rows in set (0.00 sec)
+
+# 4. 查询显示每个部门的总人数
+mysql> SELECT d.*,(SELECT COUNT(name) FROM tarena.employees AS e WHERE d.dept_id=e.dept_id) AS 总人数 FROM tarena.departments AS d;
++---------+-----------+-----------+
+| dept_id | dept_name | 总人数    |
++---------+-----------+-----------+
+|       1 | 人事部    |         8 |
+|       2 | 财务部    |         5 |
+|       3 | 运维部    |         6 |
+|       4 | 开发部    |        55 |
+|       5 | 测试部    |        12 |
+|       6 | 市场部    |         9 |
+|       7 | 销售部    |        35 |
+|       8 | 法务部    |         3 |
+|       9 | 行政部    |         0 |
+|      10 | 公关部    |         0 |
+|      11 | 小卖部    |         0 |
++---------+-----------+-----------+
+11 rows in set (0.00 sec)
+
+# 5. 查询人事部和财务部的信息
+mysql> SELECT dept_id,name FROM tarena.employees WHERE dept_id in (SELECT dept_id FROM tarena.departments WHERE dept_name in ("人事部","财务部"));
++---------+-----------+
+| dept_id | name      |
++---------+-----------+
+|       1 | 梁伟      |
+|       1 | 郭岩      |
+|       1 | 李玉英    |
+|       1 | 张健      |
+|       1 | 郑静      |
+|       1 | 牛建军    |
+|       1 | 刘斌      |
+|       1 | 汪云      |
+|       2 | 张建平    |
+|       2 | 郭娟      |
+|       2 | 郭兰英    |
+|       2 | 王英      |
+|       2 | 王楠      |
++---------+-----------+
+13 rows in set (0.00 sec)
+
+# 6. 查询人事部2018年所有员工的工资
+
+mysql> SELECT * FROM tarena.salary
+    -> WHERE YEAR(date)=2018 AND MONTH(date)=12
+    -> AND employee_id in (SELECT employee_id FROM employees WHERE dept_id =(SELECT dept_id FROM tarena.departments WHERE dept_name="人事部"));
++------+------------+-------------+-------+-------+
+| id   | date       | employee_id | basic | bonus |
++------+------------+-------------+-------+-------+
+| 6252 | 2018-12-10 |           1 | 17016 |  7000 |
+| 6253 | 2018-12-10 |           2 | 20662 |  9000 |
+| 6254 | 2018-12-10 |           3 |  9724 |  8000 |
+| 6255 | 2018-12-10 |           4 | 17016 |  2000 |
+| 6256 | 2018-12-10 |           5 | 17016 |  3000 |
+| 6257 | 2018-12-10 |           6 | 17016 |  1000 |
+| 6258 | 2018-12-10 |           7 | 23093 |  4000 |
+| 6259 | 2018-12-10 |           8 | 23093 |  2000 |
++------+------------+-------------+-------+-------+
+8 rows in set (0.00 sec)
+
+# 7. 查找2018年12月基本工资和奖金都是最高的
+mysql> SELECT s.*,e.name FROM tarena.salary AS s 
+    -> INNER JOIN tarena.employees AS e ON s.employee_id=e.employee_id
+    -> WHERE YEAR(date)=2018 AND MONTH(date)=12 
+    -> AND basic=(SELECT MAX(basic) FROM tarena.salary WHERE YEAR(date)=2018 AND MONTH(date)=12) 
+    -> AND bonus=(SELECT MAX(bonus) FROM tarena.salary WHERE YEAR(date)=2018 AND MONTH(date)=12);
++------+------------+-------------+-------+-------+--------+
+| id   | date       | employee_id | basic | bonus | name   |
++------+------------+-------------+-------+-------+--------+
+| 6368 | 2018-12-10 |         117 | 25524 | 11000 | 和林   |
++------+------------+-------------+-------+-------+--------+
+
+# 8. 查找3号部门及其部门内员工的编号，名字和邮箱
+mysql> SELECT dept_id,dept_name,employee_id,name,email FROM (SELECT d.dept_name,e.* FROM tarena.departments AS d
+    -> INNER JOIN tarena.employees AS e ON d.dept_id=e.dept_id) AS tmp_table
+    -> WHERE dept_id=3;
++---------+-----------+-------------+-----------+--------------------+
+| dept_id | dept_name | employee_id | name      | email              |
++---------+-----------+-------------+-----------+--------------------+
+|       3 | 运维部    |          14 | 廖娜      | liaona@tarena.com  |
+|       3 | 运维部    |          15 | 窦红梅    | douhongmei@tedu.cn |
+|       3 | 运维部    |          16 | 聂想      | niexiang@tedu.cn   |
+|       3 | 运维部    |          17 | 陈阳      | chenyang@tedu.cn   |
+|       3 | 运维部    |          18 | 戴璐      | dailu@tedu.cn      |
+|       3 | 运维部    |          19 | 陈斌      | chenbin@tarena.com |
++---------+-----------+-------------+-----------+--------------------+
+
+
+SELECT e.dept_id,COUNT(employee_id),d.dept_name FROM tarena.employees AS e
+INNER JOIN departments AS d ON e.dept_id=d.dept_id
+GROUP BY e.dept_id
+
+SELECT d.*,(SELECT COUNT(employee_id) FROM tarena.employees AS e WHERE e.dept_id=d.dept_id) AS 总人数 FROM tarena.departments AS d
+```
+
+
 
 #### 多表更新&删除
 
+![image-20220215174411435](imgs/image-20220215174411435.png)
+
+```mysql
+# 1. 多表更新
+mysql> CREATE TABLE t3 SELECT name,uid FROM tarena.user LIMIT 2;
+Query OK, 2 rows affected (0.32 sec)
+Records: 2  Duplicates: 0  Warnings: 0
+
+mysql> CREATE TABLE t4 SELECT uid,homedir,shell FROM tarena.user LIMIT 4;
+Query OK, 4 rows affected (0.39 sec)
+Records: 4  Duplicates: 0  Warnings: 0
+
+mysql> SELECT * FROM t3;
++------+------+
+| name | uid  |
++------+------+
+| root |    0 |
+| bin  |    1 |
++------+------+
+2 rows in set (0.00 sec)
+
+mysql> SELECT * FROM t4;
++------+----------+---------------+
+| uid  | homedir  | shell         |
++------+----------+---------------+
+|    0 | /root    | /bin/bash     |
+|    1 | /bin     | /sbin/nologin |
+|    2 | /sbin    | /sbin/nologin |
+|    3 | /var/adm | /sbin/nologin |
++------+----------+---------------+
+4 rows in set (0.00 sec)
+
+mysql> SELECT * FROM t3 INNER JOIN t4 ON t3.uid=t4.uid;
++------+------+------+---------+---------------+
+| name | uid  | uid  | homedir | shell         |
++------+------+------+---------+---------------+
+| root |    0 |    0 | /root   | /bin/bash     |
+| bin  |    1 |    1 | /bin    | /sbin/nologin |
++------+------+------+---------+---------------+
+2 rows in set (0.00 sec)
+
+mysql> UPDATE t3 INNER JOIN t4 ON t3.uid=t4.uid
+    -> SET t3.uid=101,t4.uid=102
+    -> WHERE t3.name="root";
+Query OK, 2 rows affected (0.03 sec)
+Rows matched: 2  Changed: 2  Warnings: 0
+
+mysql> SELECT * FROM t3;
++------+------+
+| name | uid  |
++------+------+
+| root |  101 |
+| bin  |    1 |
++------+------+
+2 rows in set (0.00 sec)
+
+mysql> SELECT * FROM t4;
++------+----------+---------------+
+| uid  | homedir  | shell         |
++------+----------+---------------+
+|  102 | /root    | /bin/bash     |
+|    1 | /bin     | /sbin/nologin |
+|    2 | /sbin    | /sbin/nologin |
+|    3 | /var/adm | /sbin/nologin |
++------+----------+---------------+
+4 rows in set (0.01 sec)
+
+# 2. 多表删除
+mysql> SELECT * FROM t3 INNER JOIN t4 ON t3.uid=t4.uid;
++------+------+------+---------+---------------+
+| name | uid  | uid  | homedir | shell         |
++------+------+------+---------+---------------+
+| bin  |    1 |    1 | /bin    | /sbin/nologin |
++------+------+------+---------+---------------+
+1 row in set (0.00 sec)
+
+mysql> DELETE t3,t4 
+    -> FROM t3 INNER JOIN t4 ON t3.uid=t4.uid
+    -> ;
+Query OK, 2 rows affected (0.02 sec)
+
+mysql> SELECT * FROM t3;
++------+------+
+| name | uid  |
++------+------+
+| root |  101 |
++------+------+
+1 row in set (0.00 sec)
+
+mysql> SELECT * FROM t4;
++------+----------+---------------+
+| uid  | homedir  | shell         |
++------+----------+---------------+
+|  102 | /root    | /bin/bash     |
+|    2 | /sbin    | /sbin/nologin |
+|    3 | /var/adm | /sbin/nologin |
++------+----------+---------------+
+3 rows in set (0.00 sec)
+```
 
 
+
+## MySQL视图
+
+### 介绍：
+
+> 视图是由数据库中的一个表或多个表导出的虚拟表，是一种虚拟存在的表。
+>
+> 视图是一张虚拟表，是从数据库中一个或多个表中导出来的表，其内容由查询定义。
+>
+> 同真实表一样，视图包含一系列带有名称的列和行数据
+>
+> 数据库中只存放了视图的定义，而并没有存放视图中的数据。这些数据存放在原来的表中。
+>
+> 使用视图查询数据时，数据库系统会从原来的表中取出对应的数据。
+>
+> 一旦表中的数据发生改变，显示在视图中的数据也会发生改变。
+
+
+
+### 优点：
+
+> 1. 简单
+>
+>    用户无需关心视图中的数据如何查询获得的
+>
+>    视图中的数据已经是过滤好的符合条件的结果集
+>
+> 2. 安全：用户只能看到视图中的数据
+>
+> 3. 数据独立：一旦视图结构确定，可以屏蔽表结构对用户的影响
+
+
+
+### 语法：
+
+```mysql
+# 1.创建视图
+create  view  库.视图名称  as  SQL查询;
+create  view  库.视图名称(字段名列表) as  SQL查询;
+# 在视图表中不定义字段名的话，默认使用基表的字段名，若定义字段名的话，时图表中的字段必须和基表的字数个数相等
+
+# 2.删除视图
+DROP VIEW 视图名;
+
+# 3.查看视图
+# 3.1 查看当前库下所有表的状态信息
+SHOW TABLE STATUS；
+# 3.2 查看当前库下comment为view的表的状态信息 ,注意：这里是查看当前库下的，不是表
+SHOW TABLE STATUS WHERE comment="view" \G
+# 3.3 查看创建视图具体SELECT命令
+SHOW CREATE VIEW 视图名;
+
+# 4.操作视图
+# 当对视图里的数据做 insert    、update  、 delete  ，对应的基本数据也会跟着改变，反之亦然
+```
+
+
+
+```mysql
+# 1.创建视图
+mysql> CREATE VIEW viewdb.v1 AS SELECT name,uid FROM tarena.user;
+Query OK, 0 rows affected (0.08 sec)
+
+mysql> SHOW TABLES;
++------------------+
+| Tables_in_viewdb |
++------------------+
+| v1               |
++------------------+
+1 row in set (0.00 sec)
+
+mysql> DESC viewdb.v1;
++-------+----------+------+-----+---------+-------+
+| Field | Type     | Null | Key | Default | Extra |
++-------+----------+------+-----+---------+-------+
+| name  | char(20) | YES  |     | NULL    |       |
+| uid   | int(11)  | YES  |     | NULL    |       |
++-------+----------+------+-----+---------+-------+
+
+# 2.创建视图，自定义字段名
+mysql> CREATE VIEW viewdb.v2(用户名,解释器,家目录) AS SELECT name,shell,homedir FROM tarena.user; 
+Query OK, 0 rows affected (0.03 sec)
+
+mysql> DESC v2;
++-----------+-------------+------+-----+---------+-------+
+| Field     | Type        | Null | Key | Default | Extra |
++-----------+-------------+------+-----+---------+-------+
+| 用户名    | char(20)    | YES  |     | NULL    |       |
+| 解释器    | char(30)    | YES  |     | NULL    |       |
+| 家目录    | varchar(80) | YES  |     | NULL    |       |
++-----------+-------------+------+-----+---------+-------+
+3 rows in set (0.00 sec)
+
+# 3.创建视图，使用内连接
+mysql> CREATE VIEW emp_view AS
+    -> SELECT name,email,dept_name
+    -> FROM employees AS e INNER JOIN departments AS d
+    -> ON e.dept_id = d.dept_id;
+Query OK, 0 rows affected (0.05 sec)
+
+mysql> desc emp_view;
++-----------+-------------+------+-----+---------+-------+
+| Field     | Type        | Null | Key | Default | Extra |
++-----------+-------------+------+-----+---------+-------+
+| name      | varchar(10) | YES  |     | NULL    |       |
+| email     | varchar(25) | YES  |     | NULL    |       |
+| dept_name | varchar(10) | YES  |     | NULL    |       |
++-----------+-------------+------+-----+---------+-------+
+
+mysql> SHOW CREATE VIEW emp_view \G
+*************************** 1. row ***************************
+                View: emp_view
+         Create View: CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `emp_view` AS select `e`.`employee_id` AS `employee_id`,`e`.`name` AS `name`,`e`.`dept_id` AS `dept_id`,`d`.`dept_name` AS `dept_name` from (`employees` `e` join `departments` `d` on((`e`.`dept_id` = `d`.`dept_id`)))
+character_set_client: utf8
+collation_connection: utf8_general_ci
+1 row in set (0.00 sec)
+
+mysql> SHOW TABLE STATUS WHERE comment="view" \G
+*************************** 1. row ***************************
+           Name: emp_view
+         Engine: NULL
+...
+ Create_options: NULL
+        Comment: VIEW
+1 row in set (0.00 sec)
+ 
+# 4. 操作视图
+mysql> DROP VIEW V1;
+ERROR 1051 (42S02): Unknown table 'viewdb.V1'
+mysql> CREATE VIEW viewdb.v1 AS SELECT name,uid,shell FROM tarena.user;
+mysql> select * from viewdb.v1 where name="root";
++------+------+-----------+
+| name | uid  | shell     |
++------+------+-----------+
+| root |    0 | /bin/bash |
+| root | NULL | NULL      |
++------+------+-----------+
+2 rows in set (0.00 sec)
+
+mysql> UPDATE viewdb.v1 SET uid=2088 WHERE name="root" AND shell="/bin/bash";
+# 更新视图表
+Query OK, 1 row affected (0.04 sec)
+Rows matched: 1  Changed: 1  Warnings: 0
+# 基表的数据也发生了变化
+mysql> SELECT * FROM tarena.user WHERE name="root";
++----+------+----------+------+------+-------------+---------+-----------+
+| id | name | password | uid  | gid  | comment     | homedir | shell     |
++----+------+----------+------+------+-------------+---------+-----------+
+|  1 | root | F        | 2088 |    0 | admin count | /root   | /bin/bash |
+| 38 | root | F        | NULL | NULL | NULL        | NULL    | NULL      |
++----+------+----------+------+------+-------------+---------+-----------+
+2 rows in set (0.00 sec)
+
+# 同理，基表的数据有变化，视图的数据也会发生变更
+
+# 设置查询语句中的字段别名（select 命令查询的表里有同名的字段时）
+mysql> CREATE TABLE tarena.t2 SELECT name,uid FROM tarena.user LIMIT 3;
+Query OK, 3 rows affected (0.22 sec)
+Records: 3  Duplicates: 0  Warnings: 0
+
+mysql> CREATE TABLE tarena.t1 SELECT name,shell FROM tarena.user LIMIT 5;
+Query OK, 5 rows affected (0.22 sec)
+Records: 5  Duplicates: 0  Warnings: 0
+
+mysql> CREATE VIEW tarena.v3 AS SELECT * FROM t1
+    -> INNER JOIN t2 ON t1.name=t2.name;
+ERROR 1060 (42S21): Duplicate column name 'name'  # 报错
+
+CREATE VIEW tarena.v4 AS SELECT t1.name AS username,uid,shell FROM t1 INNER JOIN t2 ON t1.name=t2.name;
+mysql> SELECT * FROM v4;
++----------+------+---------------+
+| username | uid  | shell         |
++----------+------+---------------+
+| root     | 2088 | /bin/bash     |
+| bin      |    1 | /sbin/nologin |
+| daemon   |    2 | /sbin/nologin |
++----------+------+---------------+
+
+```
+
+### 视图完整语法
+
+![image-20220215111159485](imgs/image-20220215111159485.png)
+
+1. CREATE OR REPLACE覆盖的方式创建视图 （达到修改已有视图的目的）
+
+```mysql
+mysql> CREATE VIEW viewdb.v2 AS SELECT name,uid,gid FROM tarena.user;
+ERROR 1050 (42S01): Table 'v2' already exists
+mysql> CREATE OR REPLACE VIEW viewdb.v2 AS SELECT name,uid,gid,shell FROM tarena.user;
+Query OK, 0 rows affected (0.03 sec)
+
+mysql> DESC viewdb.v2;
++-------+----------+------+-----+---------+-------+
+| Field | Type     | Null | Key | Default | Extra |
++-------+----------+------+-----+---------+-------+
+| name  | char(20) | YES  |     | NULL    |       |
+| uid   | int(11)  | YES  |     | NULL    |       |
+| gid   | int(11)  | YES  |     | NULL    |       |
+| shell | char(30) | YES  |     | NULL    |       |
++-------+----------+------+-----+---------+-------+
+4 rows in set (0.00 sec)
+```
+
+2. WITH CHECK OPTION
+
+   > 支持的检查选项:
+   >
+   > 选项 local   首先满足自身的限制 ，同时要满足基本的限制
+   >
+   > 选项 cascaded 	(默认值 )  满足视图自身限制即可
+
+   ```mysql
+   # 1. 默认情况下 通过视图修改数据是不受限制
+   mysql> CREATE VIEW tarena.v21 AS SELECT name,uid FROM tarena.user WHERE uid>10; # 此处的视图没有WITH CHECK OPTION
+   Query OK, 0 rows affected (0.03 sec)
+   
+   mysql> SELECT * FROM tarena.v21 WHERE name="ftp";
+   +------+------+
+   | name | uid  |
+   +------+------+
+   | ftp  |   14 |
+   +------+------+
+   1 row in set (0.00 sec)
+   
+   mysql> UPDATE tarena.v21 SET uid=5 WHERE name="ftp";
+   Query OK, 1 row affected (0.03 sec)
+   Rows matched: 1  Changed: 1  Warnings: 0
+   
+   mysql> SELECT * FROM tarena.v21 WHERE name="ftp";
+   Empty set (0.00 sec) # 视图中没有name为ftp的记录了
+   
+   # 2. WITH CHECK OPTION示例
+   mysql> CREATE OR REPLACE VIEW tarena.v21 AS SELECT name,uid FROM tarena.user WHERE uid>10 WITH CHECK OPTION;
+   Query OK, 0 rows affected (0.03 sec)
+   # 此处的视图有WITH CHECK OPTION
+   mysql> SELECT * FROM tarena.v21 WHERE name="games";
+   +-------+------+
+   | name  | uid  |
+   +-------+------+
+   | games |   12 |
+   +-------+------+
+   1 row in set (0.01 sec)
+   # 修改 uid 不满足限制条件，所以失败
+   mysql> UPDATE tarena.v21 SET uid=6 WHERE name="games";
+   ERROR 1369 (HY000): CHECK OPTION failed 'tarena.v21'
+   
+   # 3. WITH LOCAL CHECK OPTION示例
+   mysql> CREATE VIEW tarena.v31 AS SELECT name,uid FROM tarena.user WHERE uid <=100;
+   Query OK, 0 rows affected (0.04 sec)
+   
+   mysql> CREATE VIEW tarena.v45 AS SELECT name,uid FROM tarena.v31 WHERE uid >=10 WITH LOCAL CHECK OPTION;
+   Query OK, 0 rows affected (0.05 sec)
+   
+   mysql> SELECT * FROM tarena.v45 WHERE name="ftp";
+   Empty set (0.00 sec)
+   
+   mysql> SELECT * FROM tarena.v45;
+   +----------+------+
+   | name     | uid  |
+   +----------+------+
+   | operator |   11 |
+   | games    |   12 |
+   | nobody   |   99 |
+   | dbus     |   81 |
+   | sshd     |   74 |
+   | postfix  |   89 |
+   | rpc      |   32 |
+   | rpcuser  |   29 |
+   +----------+------+
+   8 rows in set (0.00 sec)
+   
+   mysql> UPDATE tarena.v45 SET uid=6 WHERE name="games";
+   ERROR 1369 (HY000): CHECK OPTION failed 'tarena.v45'
+   mysql> UPDATE tarena.v45 SET uid=999 WHERE name="games";
+   Query OK, 1 row affected (0.04 sec)
+   Rows matched: 1  Changed: 1  Warnings: 0
+   # 虽然超出基表v31 限制 但还改成了 因为基表v31没加限制 with check option 
+   
+   mysql> SELECT * FROM tarena.v45;
+   +----------+------+
+   | name     | uid  |
+   +----------+------+
+   | operator |   11 |
+   | nobody   |   99 |
+   | dbus     |   81 |
+   | sshd     |   74 |
+   | postfix  |   89 |
+   | rpc      |   32 |
+   | rpcuser  |   29 |
+   +----------+------+
+   7 rows in set (0.00 sec)
+   
+   # 修改视图v31 加修改限制
+   mysql> CREATE OR REPLACE VIEW tarena.v31 AS SELECT name,uid FROM tarena.user WHERE uid <=100 WITH CHECK OPTION;
+   Query OK, 0 rows affected (0.05 sec)
+   
+   mysql> UPDATE tarena.v45 SET uid=6 WHERE name="operator";
+   ERROR 1369 (HY000): CHECK OPTION failed 'tarena.v45' # 没有满足自身限制
+   mysql> UPDATE tarena.v45 SET uid=600 WHERE name="operator";
+   ERROR 1369 (HY000): CHECK OPTION failed 'tarena.v45' # 没有满足基表v31限制
+   mysql> UPDATE tarena.v45 SET uid=60 WHERE name="operator";
+   Query OK, 1 row affected (0.02 sec) # 既满足自身限制又满足基表限制
+   Rows matched: 1  Changed: 1  Warnings: 0
+   mysql> SELECT * FROM tarena.user WHERE name="operator";
+   +----+----------+----------+------+------+----------+---------+---------------+
+   | id | name     | password | uid  | gid  | comment  | homedir | shell         |
+   +----+----------+----------+------+------+----------+---------+---------------+
+   | 10 | operator | F        |   60 |    0 | operator | /root   | /sbin/nologin |
+   +----+----------+----------+------+------+----------+---------+---------------+
+   
+   ```
+
+   
+
+
+## MySQL存储过程
+
+> 就是mysql服务的脚本，登录服务器后 要重复执行的命令写成存储过程
+
+### 创建存储过程
+
+#### 语法
+
+```mysql
+delimiter //
+create procedure 库名.名称(参数列表)
+begin
+	一组合法的sql命令
+end
+//
+delimiter;
+# delimiter 把命令行的结束符号 改为//
+# 存储过程是代码，不是表，归属于某个库下
+# 如果存储过程没有参数()可以省略
+```
+
+```mysql
+mysql> delimiter //
+mysql> create procedure tarena.p1()
+    -> begin
+    -> SELECT COUNT(*) FROM tarena.user;
+    -> SELECT COUNT(*) FROM tarena.employees;
+    -> SELECT COUNT(*) FROM tarena.salary;
+    -> SELECT COUNT(*) FROM tarena.departments;
+    -> end
+    -> //
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> delimiter ;
+
+delimiter //
+create procedure tarena.p1()
+begin
+SELECT COUNT(*) FROM tarena.user;
+SELECT COUNT(*) FROM tarena.employees;
+SELECT COUNT(*) FROM tarena.salary;
+SELECT COUNT(*) FROM tarena.departments;
+end
+//
+delimiter ;
+```
+
+
+
+### 查看存储过程
+
+#### 语法
+
+```mysql
+1. mysql> SHOW PROCEDURE STATUS \G	# 需要先进入要查看的库
+2. mysql> SELECT db,name,type FROM mysql.proc WHERE name="存储过程名";
+```
+
+```mysql
+mysql> SHOW PROCEDURE STATUS \G
+mysql> SELECT db,name,type FROM mysql.proc WHERE name="p1";
++--------+------+-----------+
+| db     | name | type      |
++--------+------+-----------+
+| tarena | p1   | PROCEDURE |
++--------+------+-----------+
+1 row in set (0.00 sec)
+
+# 查看所有的存储过程
+mysql> SELECT db,name,type FROM mysql.proc WHERE type="procedure";
+```
+
+### 查看存储代码
+
+#### 语法
+
+```mysql
+SELECT body FROM mysql.proc WHERE type="procedure" AND name="p1";
+
+mysql> mysql> SELECT db,name,type,body FROM mysql.proc WHERE name="p1" \G
+*************************** 1. row ***************************
+  db: tarena
+name: p1
+type: PROCEDURE
+body: begin
+SELECT COUNT(*) FROM tarena.user;
+SELECT COUNT(*) FROM tarena.employees;
+SELECT COUNT(*) FROM tarena.salary;
+SELECT COUNT(*) FROM tarena.departments;
+end
+1 row in set (0.00 sec)
+
+```
+
+
+
+### 执行存储过程
+
+#### 语法
+
+```mysql
+CALL 存储过程名();
+```
+
+```mysql
+mysql> call tarena.p1();
++----------+
+| COUNT(*) |
++----------+
+|       32 |
++----------+
+1 row in set (0.00 sec)
+
++----------+
+| COUNT(*) |
++----------+
+|      136 |
++----------+
+1 row in set (0.00 sec)
+
++----------+
+| COUNT(*) |
++----------+
+|     8055 |
++----------+
+1 row in set (0.00 sec)
+
++----------+
+| COUNT(*) |
++----------+
+|       11 |
++----------+
+1 row in set (0.00 sec)
+
+Query OK, 0 rows affected (0.00 sec)
+```
+
+
+
+### 删除存储过程
+
+#### 语法
+
+```mysql
+DROP PROCEDURE 存储过程名;
+```
+
+```mysql
+cmysql> drop procedure tarena.p1;
+Query OK, 0 rows affected (0.00 sec)
+```
+
+### 变量
+
+#### 分类
+
+> 1. 系统变量：由系统提供，不是由用户定义的。包括全局变量，会话变量
+> 2. 用户自定义变量：用户定义的变量。包括用户变量，局部变量
+
+#### 系统变量
+
+##### 全局变量
+
+![image-20220216102052176](imgs/image-20220216102052176.png)
+
+```mysql
+mysql> SHOW GLOBAL VARIABLES LIKE "max_prepared_stmt_count";
++-------------------------+-------+
+| Variable_name           | Value |
++-------------------------+-------+
+| max_prepared_stmt_count | 16382 |
++-------------------------+-------+
+1 row in set (0.00 sec)
+
+mysql> SHOW GLOBAL VARIABLES LIKE "%version%";
++-------------------------+------------------------------+
+| Variable_name           | Value                        |
++-------------------------+------------------------------+
+| innodb_version          | 5.7.17                       |
+| protocol_version        | 10                           |
+| slave_type_conversions  |                              |
+| tls_version             | TLSv1,TLSv1.1                |
+| version                 | 5.7.17                       |
+| version_comment         | MySQL Community Server (GPL) |
+| version_compile_machine | x86_64                       |
+| version_compile_os      | Linux                        |
++-------------------------+------------------------------+
+8 rows in set (0.00 sec)
+
+mysql> SELECT @@version_comment;
++------------------------------+
+| @@version_comment            |
++------------------------------+
+| MySQL Community Server (GPL) |
++------------------------------+
+1 row in set (0.00 sec)
+
+```
+
+##### 会话变量
+
+> 会话变量的值有一部分和全局变量一样
+>
+> 根据当前登录数据库服务的用户产生的变量，修改变量的值仅对当前连接生效，其他连接的会话变量保持不变
+
+![image-20220216103158277](imgs/image-20220216103158277.png)
+
+```mysql
+mysql> SHOW SESSION VARIABLES LIKE "%timeout%";
++-----------------------------+----------+
+| Variable_name               | Value    |
++-----------------------------+----------+
+| connect_timeout             | 10       |
+| delayed_insert_timeout      | 300      |
+| have_statement_timeout      | YES      |
+| innodb_flush_log_at_timeout | 1        |
+| innodb_lock_wait_timeout    | 50       |
+| innodb_rollback_on_timeout  | OFF      |
+| interactive_timeout         | 28800    |
+| lock_wait_timeout           | 31536000 |
+| net_read_timeout            | 30       |
+| net_write_timeout           | 60       |
+| rpl_stop_slave_timeout      | 31536000 |
+| slave_net_timeout           | 60       |
+| wait_timeout                | 28800    |
++-----------------------------+----------+
+13 rows in set (0.00 sec)
+
+mysql> SHOW SESSION VARIABLES LIKE "connect_timeout";
++-----------------+-------+
+| Variable_name   | Value |
++-----------------+-------+
+| connect_timeout | 10    |
++-----------------+-------+
+1 row in set (0.00 sec)
+
+```
+
+
+
+#### 用户变量
+
+##### 局部变量
+
+##### 用户变量
+
+![image-20220216104748958](imgs/image-20220216104748958.png)
+
+```mysql
+mysql> SET @name="tim",@number=123;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> SELECT @name,@number;
++-------+---------+
+| @name | @number |
++-------+---------+
+| tim   |     123 |
++-------+---------+
+1 row in set (0.00 sec)
+
+mysql> SELECT COUNT(name) FROM tarena.user WHERE shell="/bin/bash";
++-------------+
+| COUNT(name) |
++-------------+
+|           2 |
++-------------+
+1 row in set (0.00 sec)
+
+mysql> SELECT COUNT(name) INTO @user_num FROM tarena.user WHERE shell="/bin/bash";
+Query OK, 1 row affected (0.00 sec)
+
+mysql> SELECT @user_num;
++-----------+
+| @user_num |
++-----------+
+|         2 |
++-----------+
+1 row in set (0.00 sec)
+
+# 给同一变量重复赋值，新的值会取代旧的值
+mysql> SELECT name INTO @user_num FROM tarena.user WHERE shell="/bin/sync";
+Query OK, 1 row affected (0.00 sec)
+
+mysql> SELECT @user_num;
++-----------+
+| @user_num |
++-----------+
+| sync      |
++-----------+
+1 row in set (0.00 sec)
+```
+
+
+
+## 流程控制
+
+### 顺序结构
+
+### 分支结构
+
+### 循环结构
+
+### 循环控制语句
+
+#### 
