@@ -4002,24 +4002,466 @@ mysql> show master status;
 mysql> system ls /var/lib/mysql/50mysql*
 /var/lib/mysql/50mysql-bin.000001  /var/lib/mysql/50mysql-bin.index
 
+# mysqlbinlog查看binlog日志
+[root@50mysql ~]# mysqlbinlog /var/lib/mysql/50mysql-bin.000001
 ```
 
 
 
 #### 自定义日志
 
-```
+- 修改日志文件存放的目录和名称
 
-```
+  ![image-20220217141403814](imgs/image-20220217141403814.png)
 
+  ```mysql
+  [root@50mysql ~]# mkdir /mylog
+  [root@50mysql ~]# chown mysql:mysql /mylog
+  [root@50mysql ~]# getenforce 
+  Disabled
+  [root@50mysql ~]# vim /etc/my.cnf
+  ...
+  log_bin=/mylog/tim
+  ...
+  
+  mysql> SHOW MASTER STATUS;
+  +------------+----------+--------------+------------------+-------------------+
+  | File       | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
+  +------------+----------+--------------+------------------+-------------------+
+  | tim.000001 |      154 |              |                  |                   |
+  +------------+----------+--------------+------------------+-------------------+
+  1 row in set (0.00 sec)
+  
+  ```
 
+  
 
 #### 日志管理
 
+- 创建新的日志文件的方式
+
+  ![image-20220217143233143](imgs/image-20220217143233143.png)
+
+```mysql
+1. mysql> FLUSH LOGS;	#mysql刷新日志命令
+2. [root@50mysql ~]# systemctl restart mysqld	#重启服务也会产生新的binlog
+3. [root@50mysql ~]# mysqldump -uroot -p123456 --flush-logs -B tarena > /opt/tarena.sql	#备份数据库时加上--flush-logs选项会在导出库后产生新的日志
+
 ```
+
+```shell
+# 在系统命令行执行mysql语句的方法
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW MASTER STATUS'
+```
+
+```mysql
+mysql> SHOW BINARY LOGS;	# 查看已有的日志文件
++------------+-----------+
+| Log_name   | File_size |
++------------+-----------+
+| tim.000001 |       195 |
+| tim.000002 |       195 |
+| tim.000003 |       177 |
+| tim.000004 |       195 |
+| tim.000005 |       195 |
+| tim.000006 |       154 |
++------------+-----------+
+6 rows in set (0.00 sec)
+
+mysql> SHOW MASTER STATUS;	# 查看正在使用的日志文件
++------------+----------+--------------+------------------+-------------------+
+| File       | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++------------+----------+--------------+------------------+-------------------+
+| tim.000006 |      154 |              |                  |                   |
++------------+----------+--------------+------------------+-------------------+
+1 row in set (0.00 sec)
+
+mysql> PURGE MASTER LOGS TO "tim.000003";	# 删除编号之前的日志
+Query OK, 0 rows affected (0.06 sec)
+
+mysql> SHOW BINARY LOGS;
++------------+-----------+
+| Log_name   | File_size |
++------------+-----------+
+| tim.000003 |       177 |
+| tim.000004 |       195 |
+| tim.000005 |       195 |
+| tim.000006 |       154 |
++------------+-----------+
+4 rows in set (0.00 sec)
+
+mysql> RESET MASTER;	# 删除所有的日志，重新创建日志
+Query OK, 0 rows affected (0.19 sec)
+
+mysql> SHOW BINARY LOGS;
++------------+-----------+
+| Log_name   | File_size |
++------------+-----------+
+| tim.000001 |       154 |
++------------+-----------+
+1 row in set (0.00 sec)
+
+mysql> SHOW BINLOG EVENTS IN "tim.000001";	# 查看日志文件内容
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+| Log_name   | Pos | Event_type     | Server_id | End_log_pos | Info                                  |
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+| tim.000001 |   4 | Format_desc    |        50 |         123 | Server ver: 5.7.17-log, Binlog ver: 4 |
+| tim.000001 | 123 | Previous_gtids |        50 |         154 |                                       |
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+2 rows in set (0.00 sec)
+
+mysql> INSERT INTO tarena.user(name,uid) VALUES("bob",12345);
+Query OK, 1 row affected (0.07 sec)
+
+mysql> SHOW BINLOG EVENTS IN "tim.000001";	# 新增数据后，日志文件的内容发生变化
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+| Log_name   | Pos | Event_type     | Server_id | End_log_pos | Info                                  |
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+| tim.000001 |   4 | Format_desc    |        50 |         123 | Server ver: 5.7.17-log, Binlog ver: 4 |
+| tim.000001 | 123 | Previous_gtids |        50 |         154 |                                       |
+| tim.000001 | 154 | Anonymous_Gtid |        50 |         219 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'  |
+| tim.000001 | 219 | Query          |        50 |         287 | BEGIN                                 |
+| tim.000001 | 287 | Table_map      |        50 |         353 | table_id: 246 (tarena.user)           |
+| tim.000001 | 353 | Write_rows     |        50 |         401 | table_id: 246 flags: STMT_END_F       |
+| tim.000001 | 401 | Xid            |        50 |         432 | COMMIT /* xid=261 */                  |
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+7 rows in set (0.00 sec)
+
 
 ```
 
 
 
 ### 使用日志恢复数据
+
+#### 命令格式
+
+```
+# 把查看到的文件内容管道给连接mysql服务的命令执行
+//查看文件全部内容，适用于恢复所有数据，且命令中没有delete from命令
+]# mysqlbinlog /目录/文件名 | mysql -uroot -p密码
+
+//查看文件指定范围内容，适合恢复部分数据，适用于日志文件交替出现INSERT UPDATE DELETE的命令
+]# mysqlbinlog 选项 /目录/文件名 | mysql -uroot -p密码
+```
+
+![image-20220217144854132](imgs/image-20220217144854132.png)
+
+```shell
+# 1. 恢复所有数据示例
+##############################    50机器上的操作      #########################
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SELECT COUNT(*) FROM tarena.user'
++----------+
+| COUNT(*) |
++----------+
+|       38 |
++----------+
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW MASTER STATUS'
++------------+----------+--------------+------------------+-------------------+
+| File       | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++------------+----------+--------------+------------------+-------------------+
+| tim.000001 |     1548 |              |                  |                   |
++------------+----------+--------------+------------------+-------------------+
+
+[root@50mysql ~]# mysqldump -uroot -p123456 --flush-logs tarena user > /bakdir/user.sql
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW MASTER STATUS'
++------------+----------+--------------+------------------+-------------------+
+| File       | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++------------+----------+--------------+------------------+-------------------+
+| tim.000002 |      154 |              |                  |                   |
++------------+----------+--------------+------------------+-------------------+
+
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("mimimomo")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("mimimomo")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("mimimomo")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("mimimomo")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SELECT COUNT(*) FROM tarena.user'
++----------+
+| COUNT(*) |
++----------+
+|       42 |
++----------+
+
+[root@50mysql ~]# scp /bakdir/user.sql 192.168.4.51:
+root@192.168.4.51's password: 
+user.sql                                                     100% 4163     3.9MB/s   00:00    
+[root@50mysql ~]# scp /mylog/tim.000002 192.168.4.51:
+root@192.168.4.51's password: 
+tim.000002                                                   100% 1270   690.5KB/s   00:00 
+
+
+##############################    51机器上的操作      #########################
+[root@51mysql ~]# mysql -uroot -pNSD2110...a -e 'DELETE FROM tarena.user'
+[root@51mysql ~]# mysql -uroot -pNSD2110...a -e 'SELECT COUNT(*) FROM tarena.user'
++----------+
+| COUNT(*) |
++----------+
+|        0 |
++----------+
+[root@51mysql ~]# mysql -uroot -pNSD2110...a tarena < user.sql 
+[root@51mysql ~]# mysql -uroot -pNSD2110...a -e 'SELECT COUNT(*) FROM tarena.user'
++----------+
+| COUNT(*) |
++----------+
+|       38 |
++----------+
+[root@51mysql ~]# mysqlbinlog tim.000002 | mysql -uroot -pNSD2110...a
+[root@51mysql ~]# mysql -uroot -pNSD2110...a -e 'SELECT COUNT(*) FROM tarena.user'
++----------+
+| COUNT(*) |
++----------+
+|       42 |
++----------+
+
+
+# 2. 恢复指定数据示例
+```
+
+
+
+#### 修改日志格式
+
+> 如果要查看binlog中记录的数据库操作记录
+
+![image-20220217161927842](imgs/image-20220217161927842.png)
+
+```shell
+###########################   start-position示例     ##########################
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW VARIABLES LIKE "binlog_format"'
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| binlog_format | ROW   |	# 当前默认模式是ROW
++---------------+-------+
+
+[root@50mysql ~]# vim /etc/my.cnf
+binlog_format=mixed
+[root@50mysql ~]# systemctl restart mysqld
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW VARIABLES LIKE "binlog_format"'
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| binlog_format | MIXED |	# 通过修改my.cnf配置文件修改模式为MIXED
++---------------+-------+
+
+[root@50mysql ~]# mysql -uroot -p123456 -e "SHOW MASTER STATUS"	# 已经生成新的日志文件
++------------+----------+--------------+------------------+-------------------+
+| File       | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++------------+----------+--------------+------------------+-------------------+
+| tim.000003 |      154 |              |                  |                   |
++------------+----------+--------------+------------------+-------------------+
+
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW BINLOG EVENTS IN "tim.000003"'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+| Log_name   | Pos | Event_type     | Server_id | End_log_pos | Info                                  |
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+| tim.000003 |   4 | Format_desc    |        50 |         123 | Server ver: 5.7.17-log, Binlog ver: 4 |
+| tim.000003 | 123 | Previous_gtids |        50 |         154 |                                       |
++------------+-----+----------------+-----------+-------------+---------------------------------------+
+
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("AFFF")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("BFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("CFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("DFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("EFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("GFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("HFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("IFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("JFFF")'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'DELETE FROM tarena.user WHERE name="GFFF"'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'UPDATE tarena.user SET name="OFFF" WHERE name="HFFF"'
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW BINLOG EVENTS IN "tim.000003"'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+------+----------------+-----------+-------------+------------------------------------------------------+
+| Log_name   | Pos  | Event_type     | Server_id | End_log_pos | Info                                                 |
++------------+------+----------------+-----------+-------------+------------------------------------------------------+
+| tim.000003 |    4 | Format_desc    |        50 |         123 | Server ver: 5.7.17-log, Binlog ver: 4                |
+| tim.000003 |  123 | Previous_gtids |        50 |         154 |                                                      |
+| tim.000003 |  154 | Anonymous_Gtid |        50 |         219 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 |  219 | Query          |        50 |         296 | BEGIN                                                |
+| tim.000003 |  296 | Intvar         |        50 |         328 | INSERT_ID=56                                         |
+| tim.000003 |  328 | Query          |        50 |         444 | INSERT INTO tarena.user(name) VALUES("AFFF")         |
+| tim.000003 |  444 | Xid            |        50 |         475 | COMMIT /* xid=13 */                                  |
+| tim.000003 |  475 | Anonymous_Gtid |        50 |         540 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 |  540 | Query          |        50 |         617 | BEGIN                                                |
+| tim.000003 |  617 | Intvar         |        50 |         649 | INSERT_ID=57                                         |
+| tim.000003 |  649 | Query          |        50 |         765 | INSERT INTO tarena.user(name) VALUES("BFFF")         |
+| tim.000003 |  765 | Xid            |        50 |         796 | COMMIT /* xid=19 */                                  |
+| tim.000003 |  796 | Anonymous_Gtid |        50 |         861 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 |  861 | Query          |        50 |         938 | BEGIN                                                |
+| tim.000003 |  938 | Intvar         |        50 |         970 | INSERT_ID=58                                         |
+| tim.000003 |  970 | Query          |        50 |        1086 | INSERT INTO tarena.user(name) VALUES("CFFF")         |
+| tim.000003 | 1086 | Xid            |        50 |        1117 | COMMIT /* xid=22 */                                  |
+| tim.000003 | 1117 | Anonymous_Gtid |        50 |        1182 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 1182 | Query          |        50 |        1259 | BEGIN                                                |
+| tim.000003 | 1259 | Intvar         |        50 |        1291 | INSERT_ID=59                                         |
+| tim.000003 | 1291 | Query          |        50 |        1407 | INSERT INTO tarena.user(name) VALUES("DFFF")         |
+| tim.000003 | 1407 | Xid            |        50 |        1438 | COMMIT /* xid=25 */                                  |
+| tim.000003 | 1438 | Anonymous_Gtid |        50 |        1503 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 1503 | Query          |        50 |        1580 | BEGIN                                                |
+| tim.000003 | 1580 | Intvar         |        50 |        1612 | INSERT_ID=60                                         |
+| tim.000003 | 1612 | Query          |        50 |        1728 | INSERT INTO tarena.user(name) VALUES("EFFF")         |
+| tim.000003 | 1728 | Xid            |        50 |        1759 | COMMIT /* xid=28 */                                  |
+| tim.000003 | 1759 | Anonymous_Gtid |        50 |        1824 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 1824 | Query          |        50 |        1901 | BEGIN                                                |
+| tim.000003 | 1901 | Intvar         |        50 |        1933 | INSERT_ID=61                                         |
+| tim.000003 | 1933 | Query          |        50 |        2049 | INSERT INTO tarena.user(name) VALUES("GFFF")         |
+| tim.000003 | 2049 | Xid            |        50 |        2080 | COMMIT /* xid=31 */                                  |
+| tim.000003 | 2080 | Anonymous_Gtid |        50 |        2145 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 2145 | Query          |        50 |        2222 | BEGIN                                                |
+| tim.000003 | 2222 | Intvar         |        50 |        2254 | INSERT_ID=62                                         |
+| tim.000003 | 2254 | Query          |        50 |        2370 | INSERT INTO tarena.user(name) VALUES("HFFF")         |
+| tim.000003 | 2370 | Xid            |        50 |        2401 | COMMIT /* xid=34 */                                  |
+| tim.000003 | 2401 | Anonymous_Gtid |        50 |        2466 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 2466 | Query          |        50 |        2543 | BEGIN                                                |
+| tim.000003 | 2543 | Intvar         |        50 |        2575 | INSERT_ID=63                                         |
+| tim.000003 | 2575 | Query          |        50 |        2691 | INSERT INTO tarena.user(name) VALUES("IFFF")         |
+| tim.000003 | 2691 | Xid            |        50 |        2722 | COMMIT /* xid=37 */                                  |
+| tim.000003 | 2722 | Anonymous_Gtid |        50 |        2787 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 2787 | Query          |        50 |        2864 | BEGIN                                                |
+| tim.000003 | 2864 | Intvar         |        50 |        2896 | INSERT_ID=64                                         |
+| tim.000003 | 2896 | Query          |        50 |        3012 | INSERT INTO tarena.user(name) VALUES("JFFF")         |
+| tim.000003 | 3012 | Xid            |        50 |        3043 | COMMIT /* xid=40 */                                  |
+| tim.000003 | 3043 | Anonymous_Gtid |        50 |        3108 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 3108 | Query          |        50 |        3185 | BEGIN                                                |
+| tim.000003 | 3185 | Query          |        50 |        3298 | DELETE FROM tarena.user WHERE name="GFFF"            |
+| tim.000003 | 3298 | Xid            |        50 |        3329 | COMMIT /* xid=43 */                                  |
+| tim.000003 | 3329 | Anonymous_Gtid |        50 |        3394 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'                 |
+| tim.000003 | 3394 | Query          |        50 |        3471 | BEGIN                                                |
+| tim.000003 | 3471 | Query          |        50 |        3595 | UPDATE tarena.user SET name="OFFF" WHERE name="HFFF" |
+| tim.000003 | 3595 | Xid            |        50 |        3626 | COMMIT /* xid=46 */                                  |
++------------+------+----------------+-----------+-------------+------------------------------------------------------+
+[root@50mysql ~]# scp /mylog/tim.00000
+tim.000001  tim.000002  tim.000003  
+[root@50mysql ~]# scp /mylog/tim.000003 192.168.4.51:
+root@192.168.4.51's password: 
+tim.000003                                                                                 100% 3626     1.9MB/s   00:00    
+
+
+[root@51mysql ~]# mysql -uroot -pNSD2110...a -e 'SELECT COUNT(*) FROM tarena.user'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++----------+
+| COUNT(*) |
++----------+
+|       42 |
++----------+
+[root@51mysql ~]# mysqlbinlog --start-position=328 --stop-position=3043 tim.000003 | mysql -uroot -pNSD2110...a
+[root@51mysql ~]# mysql -uroot -pNSD2110...a -e 'SELECT COUNT(*) FROM tarena.user'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++----------+
+| COUNT(*) |
++----------+
+|       51 |
++----------+
+# 注意start-position的选择
+
+
+###########################   start-datetime示例     ##########################
+[root@50mysql ~]# mysql -uroot -p123456 -e 'DELETE FROM tarena.user'
+
+# mysqlbinlog查看的日志中才会有记录时间戳
+# SHOW BINGLOG EVENT IN "日志文件名"是没有时间戳的记录
+[root@50mysql ~]# mysqlbinlog /mylog/tim.000003
+...
+#220217 16:25:55 server id 50  end_log_pos 444 CRC32 0x58b655ee 	Query	thread_id=6	exec_time=0	error_code=0
+SET TIMESTAMP=1645086355/*!*/;
+INSERT INTO tarena.user(name) VALUES("AFFF")
+/*!*/;
+# at 444
+...
+INSERT INTO tarena.user(name) VALUES("JFFF")
+/*!*/;
+# at 3012
+#220217 16:31:37 server id 50  end_log_pos 3043 CRC32 0xc0299235 	Xid = 40
+COMMIT/*!*/;
+# at 3043
+#220217 16:31:59 server id 50  end_log_pos 3108 CRC32 0xcb436693 	Anonymous_GTID	last_committed=9	sequence_number=10
+...
+
+# 查询到的时间范围是 2022-02-17 16:25:55   --->     2022-02-17 16:31:59
+[root@50mysql ~]# mysqlbinlog --start-datetime="2022-02-17 16:25:55" --stop-datetime="2022-02-17 16:31:59" /mylog/tim.000003 | mysql -uroot -p123456
+
+
+```
+
+ 
+
+## INNOBACKUPEX
+
+### 概述
+
+#### 备份工具
+
+![image-20220217175906910](imgs/image-20220217175906910.png)
+
+#### INNOBACKUPEX介绍
+
+![image-20220217180001979](imgs/image-20220217180001979.png)
+
+#### 安装软件
+
+```shell
+]#yum -y install libev-4.15-1.el6.rf.x86_64.rpm percona-xtrabackup-24-2.4.7-1.el7.x86_64.rpm
+
+# libev-4.15-1.el6.rf.x86_64.rpm是percona的依赖程序
+```
+
+
+
+### 完全备份与恢复
+
+#### 命令格式
+
+```shell
+# 完全备份
+]#innobackupex -u用户名 -p密码 /备份存放目录 [--no-timestamp]
+# 备份目录不需要事先创建
+
+# 完全恢复
+]#innobackupex --apply-log /目录名	#准备恢复数据
+]#innobackupex --copy-back /目录名	#恢复数据
+```
+
+```shell
+# 完全备份时，不带--no-timestamp参数。在指定的备份目录下会生成一个时间戳的目录，用于保存完全备份数据
+[root@50mysql ~]# innobackupex -uroot -p123456 /fullbak
+[root@50mysql ~]# ls /fullbak/
+2022-02-17_17-49-13
+[root@50mysql ~]# ls /fullbak/2022-02-17_17-49-13/
+backup-my.cnf  ib_buffer_pool  performance_schema  tarena                  xtrabackup_checkpoints
+buy            ibdata1         studb               viewdb                  xtrabackup_info
+game           mysql           sys                 xtrabackup_binlog_info  xtrabackup_logfile
+
+# 完全备份时，带--no-timestamp参数，完全备份的数据直接生成到指定的备份目录下
+[root@50mysql ~]# innobackupex -uroot -p123456 /fullbak --no-timestamp
+[root@50mysql ~]# ls /fullbak/
+backup-my.cnf   ibdata1             sys                     xtrabackup_checkpoints
+buy             mysql               tarena                  xtrabackup_info
+game            performance_schema  viewdb                  xtrabackup_logfile
+ib_buffer_pool  studb               xtrabackup_binlog_info
+
+
+```
+
+#### 恢复步骤
+
+```
+
+```
+
+
+
+### 恢复单张表
+
+### 增量备份与恢复
