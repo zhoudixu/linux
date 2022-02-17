@@ -3820,3 +3820,206 @@ end
 delimiter ;
 ```
 
+## 
+
+## 数据备份与恢复
+
+### 概念
+
+> 数据备份：就是把当前服务器的上数据拷贝一份 放到其他的存储设备里
+>
+> 恢复数据： 放到其他的存储设备里备份 ， 还原丢失的数据
+
+### 备份方式
+
+> 1. 物理备份
+> 2. 逻辑备份
+>    	- mysqldump	//备份命令
+>    	- mysql             //恢复命令
+
+### 备份策略
+
+> 1. 完全备份 ：备份所有数据(可以是一台数据库服务器上的所有数据，也可以是 一个数据库下所有表，还可以仅一张表里的所有记录)
+>
+> 2. 增量备份:  备份上次备份后，所有新产生的数据。
+>
+> 3. 差异备份：备份完全备份后，所有新产生的数据。
+>
+>    通常 备份策略的使用方式：
+>
+>    ​											完全备份+增量备份
+>
+>    ​											完全备份+差异备份
+
+### 完全备份与恢复
+
+#### 物理备份与恢复
+
+> 因为需要停止mysqld服务，所以适合线下服务器
+
+```shell
+# 备份数据
+[root@50mysql ~]# ls /var/lib/mysql
+auto.cnf    client-cert.pem  ibdata1      mysql               private_key.pem  studb
+buy         client-key.pem   ib_logfile0  mysql.sock          public_key.pem   sys
+ca-key.pem  game             ib_logfile1  mysql.sock.lock     server-cert.pem  tarena
+ca.pem      ib_buffer_pool   ibtmp1       performance_schema  server-key.pem   viewdb
+[root@50mysql ~]# mkdir /bakdir
+[root@50mysql ~]# systemctl stop mysqld
+
+# cp备份
+[root@50mysql ~]# cp -r /var/lib/mysql /bakdir/ 
+[root@50mysql ~]# ls /bakdir/
+mysql
+
+# tar备份
+[root@50mysql ~]# tar -zcvf /bakdir/mysql.tar.gz /var/lib/mysql/*	
+[root@50mysql ~]# ls /bakdir/
+mysql  mysql.tar.gz
+[root@50mysql ~]# systemctl start mysqld
+
+# 模拟数据丢失
+[root@50mysql ~]# rm -rfv /var/lib/mysql
+
+# 数据恢复前需要确保没有mysqld进程
+[root@50mysql ~]# systemctl stop mysqld
+[root@50mysql ~]# netstat -antpu | grep 3306
+[root@50mysql ~]# pstree -p | grep mysql
+# 如果有mysqld进程，使用下面的命令杀掉mysqld进程，可以多执行几次
+[root@50mysql ~]# killall -9 mysqld
+[root@50mysql ~]# \cp -rp /bakdir/mysql/* /var/lib/mysql
+[root@50mysql ~]# chown -R mysql:mysql /var/lib/mysql
+[root@50mysql ~]# systemctl start mysqld
+
+
+```
+
+
+
+#### mysqldump备份与恢复
+
+> 备份和恢复数据库服务必须是运行状态！！！！
+>
+> mysqldump是mysql服务软件提供的命令做备份和恢复
+>
+> 适合备份数据量少的数据，因为mysqldump在备份没有完成的情况下会给表加锁，在锁还未释放前，无法对表执行SELECT和INSERT。且在恢复时，是覆盖恢复
+
+- 完全备份
+
+  ```shell
+  ]# mysqldump -uroot -p密码 库名 > /目录名/备份文件名.sql
+  库名的表示方式：
+  库名  表名                    #仅备份库下一张的所有记录	
+  库名  表名1    表名2          #一起备份库下2张表的所有记录
+  	     
+  -B  库名                      #仅备份1个库里的所有表
+  -B  库名1     库名2           #一起备份2个库里的所有表
+  		 
+  -A  或   --all-databases     #备份服务器上的所有库所有表
+  ```
+
+  ```shell
+  # 备份tarena库下的user表
+  [root@50mysql ~]# mysqldump -uroot -p123456 tarena user > /bakdir/user.sql
+  # 备份tarena库下的user和employees表
+  [root@50mysql ~]# mysqldump -uroot -p123456 tarena employees salary  > /bakdir/employees_salary.sql
+  # 备份整个tarena数据库
+  [root@50mysql ~]# mysqldump -uroot -p123456 -B tarena > /bakdir/tarena.sql
+  # 备份整个tarena和studb库
+  [root@50mysql ~]# mysqldump -uroot -p123456 -B tarena studb  > /bakdir/tarena_studb.sql
+  # 备份服务器上所有库的表
+  [root@50mysql ~]# mysqldump -uroot -p123456 -A  > /bakdir/allbak.sql
+  ```
+
+- 完全恢复
+
+  > 恢复数据时，会删除目标服务器同名的库、表，再恢复数据
+
+  ```shell
+  ]# mysql -uroot -p密码 [库名] < /目录名/备份文件名.sql
+  
+  库名是可选项，如果使用的表的完全备份文件进行恢复时，必须写库名
+  ```
+
+  ``` shell
+  [root@51mysql ~]# mysql -uroot -pNSD2110...a < /root/user.sql
+  ERROR 1046 (3D000) at line 22: No database selected
+  
+  [root@51mysql ~]# mysql -uroot -pNSD2110...a  tarena < /root/user.sql
+  ```
+
+  
+
+### binlog日志
+
+> 启用mysql的binlog日志文件，可以实现对数据的实时备份
+
+![image-20220217112934665](imgs/image-20220217112934665.png)
+
+#### 启用日志
+
+![image-20220217115310215](imgs/image-20220217115310215.png)
+
+```mysql
+# my.cnf中的server_id 通常使用机器IP地址最后一位
+mysql> SHOW MASTER STATUS;
+# 查看正在使用的日志，未启用binlog
+Empty set (0.00 sec)
+
+# 启用binlog后再次查看
+mysql> SHOW MASTER STATUS;
++--------------------+----------+--------------+------------------+-------------------+
+| File               | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++--------------------+----------+--------------+------------------+-------------------+
+| 50mysql-bin.000001 |      154 |              |                  |                   |
++--------------------+----------+--------------+------------------+-------------------+
+
+# Position表示数据记录的偏移量，当有执行除查询以外的命令时，Position的值会增加
+mysql> show master status;
++--------------------+----------+--------------+------------------+-------------------+
+| File               | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++--------------------+----------+--------------+------------------+-------------------+
+| 50mysql-bin.000001 |      154 |              |                  |                   |
++--------------------+----------+--------------+------------------+-------------------+
+1 row in set (0.00 sec)
+
+mysql> INSERT INTO tarena.user(name,uid) VALUES("niuben",1234);
+Query OK, 1 row affected (0.05 sec)
+
+mysql> show master status;
++--------------------+----------+--------------+------------------+-------------------+
+| File               | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++--------------------+----------+--------------+------------------+-------------------+
+| 50mysql-bin.000001 |      435 |              |                  |                   |
++--------------------+----------+--------------+------------------+-------------------+
+1 row in set (0.00 sec)
+
+```
+
+![image-20220217120328729](imgs/image-20220217120328729.png)
+
+```mysql
+mysql> system ls /var/lib/mysql/50mysql*
+/var/lib/mysql/50mysql-bin.000001  /var/lib/mysql/50mysql-bin.index
+
+```
+
+
+
+#### 自定义日志
+
+```
+
+```
+
+
+
+#### 日志管理
+
+```
+
+```
+
+
+
+### 使用日志恢复数据
