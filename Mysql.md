@@ -4450,13 +4450,54 @@ backup-my.cnf   ibdata1             sys                     xtrabackup_checkpoin
 buy             mysql               tarena                  xtrabackup_info
 game            performance_schema  viewdb                  xtrabackup_logfile
 ib_buffer_pool  studb               xtrabackup_binlog_info
-
-
 ```
 
 #### 恢复步骤
 
-```
+> 1. 准备恢复数据
+> 2. 停止数据库服务
+> 3. 清空数据库目录
+> 4. 拷贝数据
+> 5. 修改所有者/组用户
+> 6. 启动数据库服务
+
+```shell
+[root@50mysql ~]# cat /fullbak/xtrabackup_checkpoints 
+backup_type = full-backuped	# 准备恢复前显示full-backuped
+from_lsn = 0
+to_lsn = 4932656
+last_lsn = 4932665
+compact = 0
+recover_binlog_info = 0
+[root@50mysql ~]# innobackupex --apply-log /fullbak
+[root@50mysql ~]# cat /fullbak/xtrabackup_checkpoints 
+backup_type = full-prepared	# 准备恢复后显示full-prepared
+from_lsn = 0
+to_lsn = 4932656
+last_lsn = 4932665
+compact = 0
+recover_binlog_info = 0
+
+[root@50mysql ~]# systemctl stop mysqld
+[root@50mysql ~]# rm -rf /var/lib/mysql/*
+[root@50mysql ~]# innobackupex --copy-back /fullbak/	# 恢复数据
+[root@50mysql ~]# chown -R mysql:mysql /var/lib/mysql/	# 更改属性
+[root@50mysql ~]# systemctl start mysqld
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SHOW DATABASES'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| buy                |
+| game               |
+| mysql              |
+| performance_schema |
+| studb              |
+| sys                |
+| tarena             |
+| viewdb             |
++--------------------+
 
 ```
 
@@ -4464,4 +4505,363 @@ ib_buffer_pool  studb               xtrabackup_binlog_info
 
 ### 恢复单张表
 
+> 操作步骤：
+>
+> 1. 删除表空间（表名.ibd）
+> 2. 导出表信息
+> 3. 拷贝表信息文件到数据库目录
+> 4. 修改表信息文件的所有者和组用户为mysql
+> 5. 导入表空间
+> 6. 删除数据库目录下的表信息文件
+> 7. 查看表记录
+
+```shell
+[root@50mysql ~]# ls /var/lib/mysql/tarena/
+db.opt           employees.ibd  t1.frm  t3.frm  user.frm  v45.frm
+departments.frm  emp_view.frm   t1.ibd  t3.ibd  user.ibd 
+# .frm文件存储的表头	.ibd文件存储的表数据
+```
+
+![image-20220218140149393](imgs/image-20220218140149393.png)
+
+```shell
+[root@50mysql ~]# mysql -uroot -p123456 -e 'DELETE  FROM tarena.user'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SELECT COUNT(*) FROM tarena.user'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++----------+
+| COUNT(*) |
++----------+
+|        0 |
++----------+
+[root@50mysql ~]# mysql -uroot -p123456 -e 'ALTER TABLE  tarena.user DISCARD TABLESPACE'
+# 删除表空间后，user.ibd文件不存在了
+[root@50mysql ~]# ls /var/lib/mysql/tarena/user.*
+/var/lib/mysql/tarena/user.frm
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SELECT COUNT(*) FROM tarena.user'
+ERROR 1814 (HY000) at line 1: Tablespace has been discarded for table 'user'
+
+[root@50mysql ~]# innobackupex --apply-log --export /fullbak/
+[root@50mysql ~]# ls /fullbak/tarena/user.*
+/fullbak/tarena/user.cfg  /fullbak/tarena/user.exp  /fullbak/tarena/user.frm  /fullbak/tarena/user.ibd
+[root@50mysql ~]# cp /fullbak/tarena/user.{ibd,cfg,exp} /var/lib/mysql/tarena/
+[root@50mysql ~]# chown -R mysql:mysql  /var/lib/mysql/tarena/
+[root@50mysql ~]# mysql -uroot -p123456 -e 'ALTER TABLE tarena.user IMPORT TABLESPACE'
+[root@50mysql ~]# rm -rf /var/lib/mysql/tarena/user.{cfg,exp}
+[root@50mysql ~]# mysql -uroot -p123456 -e 'SELECT * FROM tarena.user'
+```
+
+
+
 ### 增量备份与恢复
+
+> 增量备份定义： 备份上次备份后新产生的数据（所以在执行增量备份之前 必须要有过一次备份,通常在执行增量备份之前的首次备份就应该执行完全备份
+
+#### 命令格式
+
+- 增量备份
+
+  ```shell
+  ]#innobackupex -u用户名 -p密码 --incremental /目录名 --incremental-basedir=/目录名 --no-timestamp
+  ```
+
+- 增量恢复
+
+  ```shell
+  ]#innobackupex --apply-log -redo-only /首次备份目录名	#准备恢复数据
+  ]#innobackupex --apply-log -redo-only /首次备份目录名 --incremental-dir=/目录名	#合并数据
+  ]#innobackupex --copy-back /目录名	#拷贝数据
+  ```
+
+  
+
+![image-20220218140037440](imgs/image-20220218140037440.png)
+
+
+
+#### 恢复步骤
+
+![image-20220218194811695](imgs/image-20220218194811695.png)
+
+```shell
+# 1. 首次执行完全备份
+[root@50mysql ~]# innobackupex -uroot -p123456 /allbak --no-timestamp
+
+# 插入新的数据
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("xxx")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("zzz")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("lll")'
+
+# 2. 执行增量备份，该此备份也是差异备份
+[root@50mysql ~]# innobackupex -uroot -p123456 --incremental /new1bak  --incremental-basedir=/allbak --no-timestamp
+
+# 再次插入新的数据
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("RRR")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("TTT")'
+[root@50mysql ~]# mysql -uroot -p123456 -e 'INSERT INTO tarena.user(name) VALUES("PPP")'
+
+# 3. 执行增量备份
+[root@50mysql ~]# innobackupex -uroot -p123456 --incremental /new2bak  --incremental-basedir=/new1bak --no-timestamp
+# 如果按照下述执行，basedir指向完全备份，则该次备份为差异备份
+[root@50mysql ~]# innobackupex -uroot -p123456 --incremental /new2bak  --incremental-basedir=/new1bak --no-timestamp
+
+[root@50mysql ~]# cat /allbak/xtrabackup_checkpoints 
+backup_type = full-backuped
+from_lsn = 0
+to_lsn = 4989550
+last_lsn = 4989559
+compact = 0
+recover_binlog_info = 0
+[root@50mysql ~]# cat /new1bak/xtrabackup_checkpoints 
+backup_type = incremental
+from_lsn = 4989550
+to_lsn = 4992200
+last_lsn = 4992209
+compact = 0
+recover_binlog_info = 0
+[root@50mysql ~]# cat /new2bak/xtrabackup_checkpoints 
+backup_type = incremental
+from_lsn = 4992200
+to_lsn = 4994855
+last_lsn = 4994864
+compact = 0
+recover_binlog_info = 0
+# 从from_lsn和to_lsn可以看出数据的备份是连续的
+
+# 4. 恢复数据
+# 如果是恢复数据到其他机器，那么该机器也需要安装INNOBACKUPEX的软件和支持包percona-xtrabackup，libev-4.15-1.el6.rf.x86_64.rpm
+[root@50mysql ~]# scp -r /allbak 192.168.4.51:
+[root@50mysql ~]# scp -r /new1bak 192.168.4.51:
+[root@50mysql ~]# scp -r /new2bak 192.168.4.51:
+
+[root@51mysql ~]# innobackupex --apply-log --redo-only /allbak
+[root@51mysql ~]# cat ~/allbak/xtrabackup_checkpoints 
+backup_type = log-applied
+from_lsn = 0
+to_lsn = 4989550
+last_lsn = 4989559
+compact = 0
+recover_binlog_info = 0
+# 合并数据
+[root@51mysql ~]# innobackupex --apply-log --redo-only ~/allbak --incremental-dir=~/new1bak
+[root@51mysql ~]# cat ~/allbak/xtrabackup_checkpoints 
+backup_type = log-applied
+from_lsn = 0
+to_lsn = 4992200
+last_lsn = 4992209
+compact = 0
+recover_binlog_info = 0
+
+[root@51mysql ~]# innobackupex --apply-log --redo-only ~/allbak --incremental-dir=~/new2bak
+[root@51mysql ~]# cat ~/allbak/xtrabackup_checkpoints 
+backup_type = log-applied
+from_lsn = 0
+to_lsn = 4994855
+last_lsn = 4994864
+compact = 0
+recover_binlog_info = 0
+
+# 拷贝数据
+[root@51mysql ~]# systemctl stop mysqld
+[root@51mysql ~]# rm -rfv /var/lib/mysql/*
+[root@51mysql ~]# innobackupex --copy-back ~/allbak/
+[root@51mysql ~]# chown -R mysql:mysql /var/lib/mysql
+[root@51mysql ~]# systemctl start mysqld
+[root@51mysql ~]# mysql -uroot -p123456 -e 'SELECT * FROM tarena.user'
+```
+
+
+
+## Mysql主从同步
+
+### 概述
+
+> 实现数据自动同步的服务结构
+>
+> 主(master)服务器：接受客户端访问连接
+>
+> 从(slave)服务器：自动同步主服务器数据
+
+### 原理
+
+![image-20220218173007520](imgs/image-20220218173007520.png)
+
+> relay-log.info 中继日志信息
+
+### 构建主从同步
+
+![image-20220218173055048](imgs/image-20220218173055048.png)
+
+> 授权用户： 添加用户给从服务器拷贝sql命令连接使用
+
+#### 配置主服务器
+
+- 启用binlog日志
+
+  ![image-20220218205317884](imgs/image-20220218205317884.png)
+
+- 授权用户
+
+  ![image-20220218205405668](imgs/image-20220218205405668.png)
+
+- 查看日志信息
+
+  ```
+  mysql>SHOW MASTER STATUS;
+  ```
+
+  ```
+  # 1. 主服务启动binlog日志
+  [root@db51 ~]# vim /etc/my.cnf
+  [mysqld]
+  ...
+  log_bin=master51
+  server_id=51
+  ...
+  [root@db51 ~]# systemctl restart mysqld
+  # 2. 用户授权： 添加用户给从服务器拷贝sql命令连接使用
+  [root@db51 ~]# mysql -uroot -p123456 -e 'GRANT replication slave ON *.* TO repluser@"%" IDENTIFIED BY "123456"'
+  
+  # 3. 查看日志信息
+  [root@db51 ~]# mysql -uroot -p123456 -e 'SHOW MASTER STATUS'
+  mysql: [Warning] Using a password on the command line interface can be insecure.
+  +-----------------+----------+--------------+------------------+-------------------+
+  | File            | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
+  +-----------------+----------+--------------+------------------+-------------------+
+  | master51.000001 |      154 |              |                  |                   |
+  +-----------------+----------+--------------+------------------+-------------------+
+  
+  # 4. 配置从服务器的server_id
+  [root@db52 ~]# vim /etc/my.cnf
+  [mysqld]
+  ...
+  server_id=51
+  ...
+  [root@db52 ~]# systemctl restart mysqld
+  
+  # 5. 要确保与主数据库服务器数据一致 （如果是2台新数据库服务器 数据默认是一样的)
+  # 6. 管理员登录指定主服务器信息
+  [root@db52 ~]# mysql -uroot -p123456
+  mysql> SHOW SLAVE STATUS;
+  Empty set (0.00 sec)
+  mysql>CHANGE MASTER TO master_host="192.168.4.51",
+  master_user="repluser",master_password="123456",
+  master_log_file="master51.000001",master_log_pos=154;
+  # 注意这里的log_file是主服务器当前在使用的binlog日志，log_pos对应当前的偏移量
+  
+  # 7. 启动slave进程，查看进程状态信息
+  mysql> START SLAVE;
+  Query OK, 0 rows affected (0.01 sec)
+  mysql> SHOW SLAVE STATUS \G
+  *************************** 1. row ***************************
+                 Slave_IO_State: Waiting for master to send event
+                    Master_Host: 192.168.4.51
+                    Master_User: repluser
+                    Master_Port: 3306
+                  Connect_Retry: 60
+  ...
+               Slave_IO_Running: Yes
+              Slave_SQL_Running: Yes
+  ...
+  
+  # 8. 测试配置
+  # 在主数据库服务器51本机管理员登录创建新库新表，添加客户端访问使用的用户和权限
+  [root@db51 ~]# mysql -uroot -p123456 -e 'GRANT ALL ON db1.* to yaya@"%" IDENTIFIED BY "123456"'
+  [root@db51 ~]# mysql -uroot -p123456 -e 'CREATE DATABASE db1'
+  mysql: [Warning] Using a password on the command line interface can be insecure.
+  [root@db51 ~]# mysql -uroot -p123456 -e 'CREATE TABLE db1.a(id int)'
+  mysql: [Warning] Using a password on the command line interface can be insecure.
+  
+  # 在从服务器本机管理员登录查看主服务器库表和授权用户
+  [root@db52 ~]# mysql -uroot -p123456 -e 'DESC db1.a'
+  mysql: [Warning] Using a password on the command line interface can be insecure.
+  +-------+---------+------+-----+---------+-------+
+  | Field | Type    | Null | Key | Default | Extra |
+  +-------+---------+------+-----+---------+-------+
+  | id    | int(11) | YES  |     | NULL    |       |
+  +-------+---------+------+-----+---------+-------+
+  
+  
+  ```
+
+  
+
+#### 配置从服务器
+
+- 指定server_id 并重启数据库服务器
+
+  ```shell
+  ]#vim /etc/my.cnf
+  ...
+  server_id=id值	# 每台机器的ID值应该不一样
+  ...
+  ```
+
+  
+
+- 确保与主数据库服务器数据一致
+
+- 管理员指定登录主服务器信息
+
+  ```mysql
+  mysql>CHANGE MASTER TO master.host="主服务器IP",
+  master.user="用户名",master_password="密码",
+  master.log_file="binlog日志的文件名",
+  master.log_pos=偏移量;
+  ```
+
+  
+
+- 启动slave进程
+
+  ```mysql
+  # 启动slave进程
+  mysql>start slave
+  
+  # 停止slave进程
+  mysql>stop slave
+  
+  # 如果change master to 配置错误了，可以stop slave后重新配置，然后再start
+  
+  # 查看报错信息的方法：
+  SHOW SLAVE STATUS  \G
+  Last_IO_Error：Slave_IO线程报错信息
+  Last_SQL_Error: Slave_SQL线程报错信息
+  ```
+
+  
+
+- 查看进程状态信息
+
+  ```mysql
+  mysql>SHOW SLAVE STATUS \G
+  ...
+         Slave_IO_Running: Yes
+         Slave_SQL_Running: Yes
+  ...
+  # IO线程和SQL线程的状态必须都是Yes才是正确的
+  ```
+
+- 相关文件
+
+  > master.info	主库信息
+  >
+  > relay-log.info	中继日志信息
+  >
+  > 主机名-relay-bin.xxxxxx	中继日志
+  >
+  > 主机名-relay-bin.index	索引文件
+  >
+  > 删除以上文件，重启数据库服务，可以把主机恢复为独立的数据库服务器
+
+### 主从同步模式
+
+#### 主从同步结构
+
+![image-20220218203132724](imgs/image-20220218203132724.png)
+
+#### 配置一主多从
+
+#### 配置主从从结构
+
+#### 复制模式
+
