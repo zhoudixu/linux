@@ -93,7 +93,37 @@ nmcli connection up eth0
     
     ```
 
+9.小王执行n = input("number: ")语句时，输入了10。以下代码（）可以得到结果15？
 
-这个是Python阶段环境的安装视频，在家上课的同学提前安装
-链接：https://pan.baidu.com/s/1CH2HPKRuoacgMXs4Xhb0bg 
-提取码：7lek
+A.str(n) + 5	**B**.int(n) + 5
+
+C.n + str(5)	D.n + 5
+
+```python
+n = input("number: ")
+print("变量n的类型是：",type(n))
+变量n的类型是： <class 'str'>
+
+C选项是字符串的拼接
+n = input("number: ")
+print(n+str(5))
+执行上述语句，终端界面输入abc
+number: abc
+abc5
+```
+
+
+
+10.以下语句20 &gt; 10 &gt; 5，与语句（）是等价的？
+
+**A**.20 &gt; 10 and 10 &gt; 5	B.20 &gt; 10 or 10 &gt; 5
+
+C.20 &gt; 10 and 20 &gt; 5	D.20 &gt; 10 or 20 &gt; 5
+
+> 
+
+ 
+
+ 
+
+ 

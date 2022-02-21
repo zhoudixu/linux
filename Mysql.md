@@ -4861,7 +4861,256 @@ recover_binlog_info = 0
 
 #### 配置一主多从
 
-#### 配置主从从结构
+#### 配置主从从结构-链式复制
 
-#### 复制模式
+> 既做**主**又做**从**的服务器要开启**级联复制**功能log_slave_updates
+
+![image-20220221094726946](imgs/image-20220221094726946.png)
+
+```shell
+# 配置主
+[root@db53 mysql]# vim /etc/my.cnf
+[mysqld]
+...
+server_id=53
+log_bin=master53
+...
+[root@db53 mysql]# systemctl restart mysqld
+[root@db53 mysql]# mysql -uroot -p123456 -e 'GRANT REPLICATION SLAVE ON *.* TO repluser@"%" IDENTIFIED BY "123456"'
+[root@db53 mysql]# mysql -uroot -p123456 -e 'SHOW MASTER STATUS'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++-----------------+----------+--------------+------------------+-------------------+
+| File            | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++-----------------+----------+--------------+------------------+-------------------+
+| master53.000001 |      441 |              |                  |                   |
++-----------------+----------+--------------+------------------+-------------------+
+
+# 配置从
+[root@db54 ~]# vim /etc/my.cnf
+[mysqld]
+log_bin=master54
+server_id=54
+log_slave_updates	# 允许级联复制
+...
+[root@db54 ~]# systemctl restart mysqld
+[root@db54 ~]# mysql -uroot -p123456 -e 'GRANT REPLICATION SLAVE ON *.* TO repluser@"%" IDENTIFIED BY "123456"'
+[root@db54 ~]# mysql -uroot -p123456 -e 'CHANGE MASTER TO master_host="192.168.4.53",master_user="repluser",master_password="123456",master_log_file="master53.000001",master_log_pos=441'
+[root@db54 ~]# mysql -uroot -p123456 -e 'START SLAVE'
+[root@db54 ~]# mysql -uroot -p123456 -e 'SHOW SLAVE STATUS\G'
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: 192.168.4.53
+                  Master_User: repluser
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+[root@db54 ~]# mysql -uroot -p123456 -e 'SHOW MASTER STATUS'
++-----------------+----------+--------------+------------------+-------------------+
+| File            | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++-----------------+----------+--------------+------------------+-------------------+
+| master54.000001 |      441 |              |                  |                   |
++-----------------+----------+--------------+------------------+-------------------+
+
+# 配置从的从
+[root@db55 ~]# vim /etc/my.cnf
+[root@db55 ~]# systemctl restart mysqld
+mysql> CHANGE MASTER TO master_host="192.168.4.54",master_user="repluser",master_password="123456",master_log_file="master54.000001",master_log_pos=441;
+mysql> START SLAVE;
+mysql> SHOW SLAVE STATUS \G
+Master_Log_File: master54.000001
+Read_Master_Log_Pos: 441
+Slave_IO_Running: Yes
+Slave_SQL_Running: Yes
+...
+
+# 验证主从从
+[root@db53 mysql]# mysql -uroot -p123456 -e 'GRANT ALL ON webdb.* TO yaya6688@"%" IDENTIFIED BY "123456"'
+
+[root@50mysql ~]# mysql -h192.168.4.53 -uyaya6688 -p123456
+mysql> CREATE DATABASE webdb;
+mysql> CREATE TABLE webdb.t1(id int);
+mysql> INSERT INTO webdb.t1 VALUES(101);
+mysql> SELECT * FROM webdb.t1;
++------+
+| id   |
++------+
+|  101 |
++------+
+1 row in set (0.00 sec)
+
+
+[root@50mysql ~]# mysql -h192.168.4.54 -uyaya6688 -p123456 -e 'SELECT * FROM webdb.t1'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------+
+| id   |
++------+
+|  101 |
++------+
+[root@50mysql ~]# mysql -h192.168.4.55 -uyaya6688 -p123456 -e 'SELECT * FROM webdb.t1'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------+
+| id   |
++------+
+|  101 |
++------+
+
+
+```
+
+#### 互为主从
+
+```mysql
+# 1.
+[root@db56 ~]# vim /etc/my.cnf
+[root@db56 ~]# systemctl restart mysqld
+[root@db56 ~]# mysql -uroot -p123456
+mysql> GRANT replication slave ON *.* TO repluser@"%" IDENTIFIED BY "123456";
+Query OK, 0 rows affected, 1 warning (0.02 sec)
+mysql> SHOW MASTER STATUS;
++-----------------+----------+--------------+------------------+-------------------+
+| File            | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++-----------------+----------+--------------+------------------+-------------------+
+| master56.000001 |      441 |              |                  |                   |
++-----------------+----------+--------------+------------------+-------------------+
+1 row in set (0.00 sec)
+
+# 2. 
+[root@db57 ~]# vim /etc/my.cnf
+log_bin=master57
+server_id=57
+[root@db57 ~]# systemctl restart mysqld
+[root@db57 ~]# mysql -uroot -p123456
+mysql> GRANT replication slave ON *.* TO repluser@"%" IDENTIFIED BY "123456";
+mysql> CHANGE MASTER TO master_host="192.168.4.56",master_user="repluser",master_password="123456",master_log_file="master56.000001",master_log_pos=441;
+mysql> START SLAVE;
+mysql> SHOW SLAVE STATUS \G
+
+# 3.
+mysql> CHANGE MASTER TO master_host="192.168.4.57",master_user="repluser",master_password="123456",master_log_file="master57.000001",master_log_pos=441;
+mysql> START SLAVE;
+mysql> SHOW SLAVE STATUS \G
+
+# 4. 验证
+[root@db56 ~]# mysql -uroot -p123456
+mysql> GRANT ALL ON db2.* TO tim@"%" IDENTIFIED BY "123456";
+
+[root@50mysql ~]# mysql -h 192.168.4.56 -utim -p123456
+[root@50mysql ~]# mysql -h 192.168.4.57 -utim -p123456
+[root@50mysql ~]# mysql -h 192.168.4.57 -utim -p123456 -e "CREATE DATABASE db2"
+[root@50mysql ~]# mysql -h 192.168.4.57 -utim -p123456 -e "CREATE TABLE db2.b(id int)"
+[root@50mysql ~]# mysql -h 192.168.4.57 -utim -p123456 -e "INSERT INTO db2.b VALUES(123)"
+[root@50mysql ~]# mysql -h192.168.4.56 -utim -p123456 -e 'SELECT * FROM db2.b'
++------+
+| id   |
++------+
+|  123 |
++------+
+[root@50mysql ~]# mysql -h192.168.4.56 -utim -p123456 -e 'INSERT INTO db2.b VALUES(456)'
+[root@50mysql ~]# mysql -h192.168.4.57 -utim -p123456 -e 'SELECT * FROM db2.b'
++------+
+| id   |
++------+
+|  123 |
+|  456 |
++------+
+```
+
+
+
+### 复制模式
+
+主从数据库服务实现数据同步的工作方式：
+
+> 1. 异步复制模式（默认）- Asynchronous replication
+>
+>    主服务器执行完一次事务后，立即将结果返给客户端，不关心从服务器是否已经同步数据。
+>
+> 2. 半同步复制模式- Semisynchronous replication
+>
+>    主服务器在执行完一次事务后，等待至少一台从服务器同步数据完成，才将结果返回给客户端。
+
+- 安装功能模块，并查看安装状态
+
+  ```mysql
+  [root@50mysql ~]# mysql -uroot -p123456
+  mysql> INSTALL PLUGIN rpl_semi_sync_master SONAME "semisync_master.so";
+  Query OK, 0 rows affected (0.04 sec)
+  
+  mysql> INSTALL PLUGIN rpl_semi_sync_slave SONAME "semisync_slave.so";
+  Query OK, 0 rows affected (0.03 sec)
+  mysql> SELECT plugin_name,plugin_status FROM information_schema.plugins WHERE plugin_name LIKE '%semi%';
+  +----------------------+---------------+
+  | plugin_name          | plugin_status |
+  +----------------------+---------------+
+  | rpl_semi_sync_master | ACTIVE        |
+  | rpl_semi_sync_slave  | ACTIVE        |
+  +----------------------+---------------+
+  2 rows in set (0.00 sec)
+  ```
+
+- 启用半同步复制功能模块，并且查看状态
+
+  ```mysql
+  mysql> show variables like "rpl_semi_sync_%_enabled";
+  +------------------------------+-------+
+  | Variable_name                | Value |
+  +------------------------------+-------+
+  | rpl_semi_sync_master_enabled | OFF   |
+  | rpl_semi_sync_slave_enabled  | OFF   |
+  +------------------------------+-------+
+  2 rows in set (0.00 sec)
+  mysql> SET GLOBAL rpl_semi_sync_master_enabled=1;
+  mysql> SET GLOBAL rpl_semi_sync_slave_enabled =1;
+  mysql> show variables like "rpl_semi_sync_%_enabled";
+  +------------------------------+-------+
+  | Variable_name                | Value |
+  +------------------------------+-------+
+  | rpl_semi_sync_master_enabled | ON    |
+  | rpl_semi_sync_slave_enabled  | ON    |
+  +------------------------------+-------+
+  ```
+
+- 永久配置，修改主配置文件
+
+  ```mysql
+  [root@50mysql ~]# vim /etc/my.cnf
+  plugin-load="rpl_semi_sync_master=semisync_master.so;rpl_semi_sync_slave=semisync_slave.so"
+  rpl_semi_sync_master_enabled=1
+  rpl_semi_sync_slave_enabled=1
+  ...
+  [root@50mysql ~]# systemctl restart mysqld
+  mysql> SHOW VARIABLES LIKE 'rpl_semi_sync_%_enabled';
+  +------------------------------+-------+
+  | Variable_name                | Value |
+  +------------------------------+-------+
+  | rpl_semi_sync_master_enabled | ON    |
+  | rpl_semi_sync_slave_enabled  | ON    |
+  +------------------------------+-------+
+  
+  ```
+
+  **具体应用场景中安装master还是slave模块取决于服务器是主还是从模式**
+
+## 数据读写分离
+
+### 原理
+
+> 由MySQL代理面向客户端提供服务
+>
+> - 收到SQL写请求时，交给master服务器处理
+> - 受到SQL读请求时，交给slave服务器处理
+>
+> 把客户端查询数据的select 访问和存储数据insert 访问分别给不同的数据库服务器处理。目的减轻单台数据库服务器的工作压力，但是得保证负责处理select访问请求数据库服务器的数据要和处理insert访问请求的数据库服务器的数据一致。 所以要想实现数据的读写分离，存储数据的数据库服务器之间必须是主从结构。
+
+### 实现方式
+
+> 客户端：开发网站的程序员在写访问数据库服务器的脚本时， 在脚本里定义连接的数据库服务器的ip地址。执行查询访问命令必须连接 slave服务器的ip地址，执行insert访问的命令必须连接 master服务器的ip地址
+>
+> 服务器端：客户端查看数据和存储数据库的时候，连接的不是数据库服务器，而是读写分离功能的服务器，由读写分离服务器根据客户端的访问类型，把请求给后端数据库服务器处理
+>
+> mysql中间件：指的是架设在数据库服务器和客户端之间的软件，中间件功能各有不同。提供数据读写分离功能的中间件软件有： mysql-proxy、maxscale、mycat  ...
+
+### 使用maxscale 提供数据读写服务
+
+```
+
+```
 
