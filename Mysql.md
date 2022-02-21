@@ -5102,15 +5102,265 @@ mysql> GRANT ALL ON db2.* TO tim@"%" IDENTIFIED BY "123456";
 
 ### 实现方式
 
-> 客户端：开发网站的程序员在写访问数据库服务器的脚本时， 在脚本里定义连接的数据库服务器的ip地址。执行查询访问命令必须连接 slave服务器的ip地址，执行insert访问的命令必须连接 master服务器的ip地址
+> 方式一客户端：开发网站的程序员在写访问数据库服务器的脚本时， 在脚本里定义连接的数据库服务器的ip地址。执行查询访问命令必须连接 slave服务器的ip地址，执行insert访问的命令必须连接 master服务器的ip地址
 >
-> 服务器端：客户端查看数据和存储数据库的时候，连接的不是数据库服务器，而是读写分离功能的服务器，由读写分离服务器根据客户端的访问类型，把请求给后端数据库服务器处理
+> 方式二服务器端：客户端查看数据和存储数据库的时候，连接的不是数据库服务器，而是读写分离功能的服务器，由读写分离服务器根据客户端的访问类型，把请求给后端数据库服务器处理
 >
 > mysql中间件：指的是架设在数据库服务器和客户端之间的软件，中间件功能各有不同。提供数据读写分离功能的中间件软件有： mysql-proxy、maxscale、mycat  ...
 
+### 缺点
+
+> 该架构存在单点故障，解决办法：高可用集群
+
 ### 使用maxscale 提供数据读写服务
 
-```
+#### 步骤
+
+1. 配置mysql主从同步结构
+
+   ```mysql
+   [root@db52 ~]# mysql -uroot -p123456 -e 'SHOW SLAVE STATUS \G' | grep -i yes
+   Slave_IO_Running: Yes
+   Slave_SQL_Running: Yes
+   [root@db52 ~]# mysql -uroot -p123456 -e 'SHOW SLAVE STATUS \G' | grep -i master_host
+   Master_Host: 192.168.4.51
+   ```
+
+2. 安装maxscale
+
+   ```
+   [root@db56 ~]# yum -y install maxscale-2.1.2-1.rhel.7.x86_64.rpm
+   ```
+
+   
+
+3. 修改maxscale配置
+
+   ```shell
+   [root@db56 ~]# cp /etc/maxscale.cnf /etc/maxscale-bak.cnf
+   [root@db56 ~]# vim /etc/maxscale.cnf
+     9 [maxscale]
+    10 threads=1	# 定义线程数，可写数字或者auto
+    ...
+    18 [server1]	# 指定第1台数据库服务器的ip地址
+    19 type=server
+    20 address=192.168.4.51	# master主机IP地址
+    21 port=3306
+    22 protocol=MySQLBackend
+    23 
+    24 [server2]	# 指定第2台数据库服务器的ip地址
+    25 type=server
+    26 address=192.168.4.52	# slave主机IP地址
+    27 port=3306
+    28 protocol=MySQLBackend
+    ...
+    36 [MySQL Monitor]				#定义要监视的数据库节点
+    37 type=monitor
+    38 module=mysqlmon
+    39 servers=server1,server2		#主、从数据库的主机名
+    40 user=mysqla					#监控用户
+    41 passwd=123qqq...A			#密码
+    42 monitor_interval=10000
+    ...
+    53 #[Read-Only Service]
+    54 #type=service
+    55 #router=readconnroute
+    56 #servers=server1
+    57 #user=myuser
+    58 #passwd=mypwd
+    59 #router_options=slave
+    ...
+    64 [Read-Write Service]	#定义读写分离的数据库节点
+    65 type=service
+    66 router=readwritesplit
+    67 servers=server1,server2
+    68 user=mysqlb				#路由用户
+    69 passwd=123qqq..A		#密码
+    70 max_slave_connections=100%
+    ...
+    75 [MaxAdmin Service]	#管理服务（通过访问管理服务可以查看监控信息）
+    76 type=service
+    77 router=cli
+    ...
+    86 #[Read-Only Listener]
+    87 #type=listener
+    88 #service=Read-Only Service
+    89 #protocol=MySQLClient
+    90 #port=4008
+    ...
+    92 [Read-Write Listener]	#定义读写分离服务端口号
+    93 type=listener
+    94 service=Read-Write Service
+    95 protocol=MySQLClient
+    96 port=4006
+    ...
+    98 [MaxAdmin Listener]	#定义管理服务端口号
+    99 type=listener
+   100 service=MaxAdmin Service
+   101 protocol=maxscaled
+   102 socket=default
+   103 port=4016			#定义管理服务使用端口
+   
+   ```
+
+   
+
+4. 配置数据库服务器-在数据库服务器上添加监控用户和路由用户
+
+   ```mysql
+   mysql>GRANT REPLICATION SLAVE,REPLICATION CLIENT ON *.* TO mysqla@"%" IDENTIFIED BY '123qqq...A';
+   # REPLICATION CLIENT 监视数据库服务的运行状态 
+   # REPLICATION SLAVE 获取数据库服务器的主从角色
+   mysql>GRANT SELECT ON mysql.* TO mysqlb@"%" IDENTIFIED BY "123qqq...A";
+   # 注意：因为是主从结构 ，所以只需要在主服务器添加，从服务器会自动同步
+   ```
+
+   
+
+5. 启动读写分离服务
+
+   ![image-20220221173627577](imgs/image-20220221173627577.png)
+
+   ```shell
+   # 确保账号可以正常访问
+   [root@db56 ~]# mysql -h192.168.4.51 -umysqla -p123qqq...A
+   [root@db56 ~]# mysql -h192.168.4.52 -umysqla -p123qqq...A
+   [root@db56 ~]# mysql -h192.168.4.51 -umysqlb -p123qqq...A
+   [root@db56 ~]# mysql -h192.168.4.52 -umysqlb -p123qqq...A
+   # 启动maxscale
+   [root@db56 ~]# ls /var/log/maxscale/
+   [root@db56 ~]# maxscale -f /etc/maxscale.cnf
+   # 查看端口
+   [root@db56 ~]# netstat -antpu | grep maxscale
+   tcp6       0      0 :::4006                 :::*                    LISTEN      2510/maxscale       
+   tcp6       0      0 :::4016                 :::*                    LISTEN      2510/maxscale
+   [root@db56 ~]# less /var/log/maxscale/maxscale.log
+   ```
+
+   
+
+6. 查看监视信息
+
+   ```SHELL
+   ]#maxadmin -uadmin -pmariadb -P端口
+   >list servers
+   ```
+
+   ```shell
+   [root@db56 ~]# maxadmin -uadmin -pmariadb -P4016
+   MaxScale> list servers
+   Servers.
+   -------------------+-----------------+-------+-------------+--------------------
+   Server             | Address         | Port  | Connections | Status              
+   -------------------+-----------------+-------+-------------+--------------------
+   server1            | 192.168.4.51    |  3306 |           0 | Master, Running
+   server2            | 192.168.4.52    |  3306 |           0 | Slave, Running
+   -------------------+-----------------+-------+-------------+--------------------
+   
+   ```
+
+   
+
+7. 测试配置
 
 ```
+mysql -h读写分离服务器的ip   -P读写分离服务的端口号 -u数据库授权用户名  -p密码
+```
 
+```mysql
+第1步： 在主数据库服务器51添加用户
+[root@db51 ~]# mysql -uroot -p123456
+mysql> CREATE DATABASE bbsdb;
+Query OK, 1 row affected (0.04 sec)
+
+mysql> CREATE TABLE bbsdb.a(id int);
+Query OK, 0 rows affected (0.41 sec)
+mysql> GRANT SELECT,INSERT ON bbsdb.* TO jing99@"%" IDENTIFIED BY "123qqq...A";
+
+第2步：客户端50连接读写分离服务器，查询数据和存储数据
+[root@50mysql ~]# mysql -h192.168.4.56 -P4006 -ujing99 -p123qqq...A
+mysql> SELECT @@hostname;
++------------+
+| @@hostname |
++------------+
+| db52       |
++------------+
+1 row in set (0.00 sec)
+
+mysql> INSERT INTO bbsdb.a VALUES(111);
+Query OK, 1 row affected (0.08 sec)
+
+mysql> SELECT * FROM bbsdb.a;
++------+
+| id   |
++------+
+|  111 |
++------+
+1 row in set (0.00 sec)
+
+第3步：测试读写分离
+# 从服务器插入新的数据，该数据不会同步给主服务器
+[root@db52 ~]# mysql -uroot -p123456 -e 'INSERT INTO bbsdb.a VALUES(222)'
+[root@db52 ~]# mysql -uroot -p123456 -e 'SELECT * FROM bbsdb.a'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------+
+| id   |
++------+
+|  111 |
+|  222 |
++------+
+
+# 主服务器查询数据，
+[root@db51 ~]# mysql -uroot -p123456 -e 'SELECT * FROM bbsdb.a'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------+
+| id   |
++------+
+|  111 |
++------+
+
+# 客户端连接读写分离服务器查询数据
+[root@50mysql ~]# mysql -h192.168.4.56 -P4006 -ujing99 -p123qqq...A -e 'SELECT * FROM bbsdb.a'
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------+
+| id   |
++------+
+|  111 |
+|  222 |
++------+
+```
+
+## MySQL多实例
+
+> 在一台物理主机上运行多个数据库服务
+>
+> - 节约运维成本
+> - 提高硬件利用率
+
+#### 安装软件
+
+![image-20220221175658928](imgs/image-20220221175658928.png)
+
+```shell
+# 安装提供多实例功能的数据库软件
+[root@db56 ~]# tar -xf mysql-5.7.20-linux-glibc2.12-x86_64.tar.gz
+[root@db56 ~]# mv mysql-5.7.20-linux-glibc2.12-x86_64 /usr/local/mysql
+# 部署服务运行环境
+[root@db56 ~]# id mysql || useradd mysql
+uid=27(mysql) gid=27(mysql) 组=27(mysql)
+[root@db56 ~]# rpm -q libaio || yum -y install libaio
+
+[root@db56 ~]# vim /etc/bashrc
+export PATH=/usr/local/mysql/bin:$PATH
+[root@db56 ~]# source /etc/bashrc
+[root@db56 ~]# echo $PATH
+/usr/local/mysql/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+```
+
+
+
+#### 配置文件
+
+#### 管理多实例
+
+#### 客户端访问
