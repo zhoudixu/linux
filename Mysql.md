@@ -1622,8 +1622,7 @@ mysql> SHOW GRANTS;
   mysql> REVOKE GRANT OPTION ON *.* FROM root@"%";
   Query OK, 0 rows affected (0.00 sec)
   
-  mysql> SHOW GRANTS FOR root@"%"
-      -> ;
+  mysql> SHOW GRANTS FOR root@"%";
   +-------------------------------------------+
   | Grants for root@%                         |
   +-------------------------------------------+
@@ -2851,7 +2850,7 @@ mysql> SELECT * FROM t4;
 # 1.创建视图
 create  view  库.视图名称  as  SQL查询;
 create  view  库.视图名称(字段名列表) as  SQL查询;
-# 在视图表中不定义字段名的话，默认使用基表的字段名，若定义字段名的话，时图表中的字段必须和基表的字数个数相等
+# 在视图表中不定义字段名的话，默认使用基表的字段名，若定义字段名的话，视图表中的字段必须和基表的字数个数相等
 
 # 2.删除视图
 DROP VIEW 视图名;
@@ -4136,7 +4135,7 @@ mysql> SHOW BINLOG EVENTS IN "tim.000001";	# 新增数据后，日志文件的�
 
 #### 命令格式
 
-```
+```shell
 # 把查看到的文件内容管道给连接mysql服务的命令执行
 //查看文件全部内容，适用于恢复所有数据，且命令中没有delete from命令
 ]# mysqlbinlog /目录/文件名 | mysql -uroot -p密码
@@ -4803,10 +4802,10 @@ recover_binlog_info = 0
 - 管理员指定登录主服务器信息
 
   ```mysql
-  mysql>CHANGE MASTER TO master.host="主服务器IP",
-  master.user="用户名",master_password="密码",
-  master.log_file="binlog日志的文件名",
-  master.log_pos=偏移量;
+  mysql>CHANGE MASTER TO master_host="主服务器IP",
+  master_user="用户名",master_password="密码",
+  master_log_file="binlog日志的文件名",
+  master_log_pos=偏移量;
   ```
 
   
