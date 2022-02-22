@@ -5360,6 +5360,256 @@ export PATH=/usr/local/mysql/bin:$PATH
 
 #### 配置文件
 
+![image-20220222091559499](imgs/image-20220222091559499.png)
+
+> socket文件-在数据库服务器本机访问多实例时通过socket区分连接的实例服务
+
+```
+#管理多实例服务的运行参数
+[mysqld_multi]
+mysqld=/usr/local/mysql/bin/mysqld_safe			#多实例服务启动的时候调用的命令
+mysqladmin=/usr/local/mysql/bin/mysql_admin		#修改数据库管理员使用的命令
+user=root										#启动多实例服务的用户名
+[mysqld1]
+datadir=/dir1									#数据库目录
+socket=/dir1/mysqld1.sock				
+log-error=/dir1/mysqld1.log						#错误日志文件
+pid-file=/dir1/mysqld.pid						#pid号文件
+port=3307										#服务端口号
+```
+
+```
+# 测试使用配置文件
+[mysqld_multi]
+mysqld=/usr/local/mysql/bin/mysqld_safe
+mysqladmin=/usr/local/mysql/bin/mysqladmin
+
+[mysqld1]
+datadir=/dir1
+pid-file=/dir1/mysqld1.pid
+port=3307
+log-error=/dir1/mysqld1.err
+socket=/dir1/mysqld1.sock
+
+[mysqld2]
+datadir=/dir2
+pid-file=/dir2/mysqld2.pid
+port=3308
+log-error=/dir2/mysqld2.err
+socket=/dir2/mysqld2.sock
+```
+
+
+
 #### 管理多实例
 
+![image-20220222094917109](imgs/image-20220222094917109.png)
+
+```shell
+# 1.启动实例一
+[root@db56 ~]# mysqld_multi start 1
+
+Installing new database in /dir1
+
+2022-02-22T01:50:37.100025Z 0 [Warning] TIMESTAMP with implicit DEFAULT value is deprecated. Please use --explicit_defaults_for_timestamp server option (see
+...
+2022-02-22T01:50:39.687571Z 1 [Note] A temporary password is generated for root@localhost: FwyqD9j8Qe#a
+
+[root@db56 ~]# ls /dir1
+auto.cnf        ibdata1      ib_logfile1  mysql        mysqld1.pid   mysqld1.sock.lock   sys
+ib_buffer_pool  ib_logfile0  ibtmp1       mysqld1.err  mysqld1.sock  performance_schema
+[root@db56 ~]# ss -ultnp | grep 3307
+tcp    LISTEN     0      80       :::3307                 :::*                   users:(("mysqld",pid=20125,fd=20))
+
+# 2.启动实例二
+[root@db56 ~]# mysqld_multi start 2
+
+
+Installing new database in /dir2
+
+2022-02-22T01:57:33.197837Z 0 [Warning] TIMESTAMP with implicit DEFAULT value is deprecated. Please use --explicit_defaults_for_timestamp server option (see documentation for more details).
+2022-02-22T01:57:34.910274Z 0 [Warning] InnoDB: New log files created, LSN=45790
+2022-02-22T01:57:35.262126Z 0 [Warning] InnoDB: Creating foreign key constraint system tables.
+2022-02-22T01:57:35.368631Z 0 [Warning] No existing UUID has been found, so we assume that this is the first time that this server has been started. Generating a new UUID: ce0dd031-9382-11ec-98f1-525400f389e6.
+2022-02-22T01:57:35.388655Z 0 [Warning] Gtid table is not ready to be used. Table 'mysql.gtid_executed' cannot be opened.
+2022-02-22T01:57:35.389431Z 1 [Note] A temporary password is generated for root@localhost: +H&BDx+*Z0Cr
+
+[root@db56 ~]# ls /dir2/
+auto.cnf        ibdata1      ib_logfile1  mysql        mysqld2.pid   mysqld2.sock.lock   sys
+ib_buffer_pool  ib_logfile0  ibtmp1       mysqld2.err  mysqld2.sock  performance_schema
+[root@db56 ~]# ss -tunlp | grep 3308
+tcp    LISTEN     0      80       :::3308                 :::*                   users:(("mysqld",pid=27831,fd=20))
+
+# 3.停止实例二
+[root@db56 ~]# ls /dir2
+auto.cnf        ibdata1      ibtmp1       mysqld2.pid        performance_schema
+db1             ib_logfile0  mysql        mysqld2.sock       sys
+ib_buffer_pool  ib_logfile1  mysqld2.err  mysqld2.sock.lock
+[root@db56 ~]# mysqld_multi --user=root --password=123qqq...A stop 2
+# mysqld2.sock文件消失
+[root@db56 ~]# ls /dir2
+auto.cnf  ib_buffer_pool  ib_logfile0  mysql        performance_schema
+db1       ibdata1         ib_logfile1  mysqld2.err  sys
+# 实例二端口3308消失
+[root@db56 ~]# ss -tunlp | grep mysqld
+tcp    LISTEN     0      80       :::3307                 :::*                   users:(("mysqld",pid=20125,fd=20))
+
+# 4. 查看mysqld的父进程
+[root@db56 ~]# pstree -p | grep mysqld
+           |-mysqld_safe(14000)---mysqld(14126)-+-{mysqld}(14144)
+           |-mysqld_safe(20001)---mysqld(20125)-+-{mysqld}(20126)
+           
+[root@db56 ~]# ss -tunlp | grep mysqld
+tcp    LISTEN     0      80       :::3307                 :::*                   users:(("mysqld",pid=20125,fd=20))
+tcp    LISTEN     0      80       :::3308                 :::*                   users:(("mysqld",pid=14126,fd=29))
+如果多实例中在刚创建时，某个mysqld存在问题无法进入，可以查看实例的父进程，停掉该PID,清空对应的文件夹重新启动该实例，然后可以获取初始密码
+```
+
+
+
 #### 客户端访问
+
+![image-20220222095401427](imgs/image-20220222095401427.png)
+
+```mysql
+[root@db56 ~]# mysql -uroot -p'FwyqD9j8Qe#a' -S /dir1/mysqld1.sock
+mysql> ALTER USER root@"localhost" IDENTIFIED BY "123qqq...A"
+
+[root@db56 ~]# mysql -uroot -p'+H&BDx+*Z0Cr' -S /dir2/mysqld2.sock
+mysql> ALTER USER root@"localhost" IDENTIFIED BY "123qqq...A";
+mysql> CREATE DATABASE db1 DEFAULT CHARSET utf8mb4;
+mysql> CREATE TABLE db1.a(id int);
+mysql> INSERT INTO db1.a VALUES(123);
+
+
+```
+
+
+
+## 分布式存储
+
+> 分布式存储：把数据存储在不同地点的数据库服务器里，每台数据库里存储的数据各不相同
+
+### 数据分片
+
+#### 分库/分表
+
+> 将存放在一台数据库服务器中的数据，按照特定方式进行拆分，分散存放到多台数据库服务器中，以达到分散单台服务器负载的效果。
+>
+> 分表：
+>
+> 分库：
+
+#### 水平分隔
+
+> 横向切分，按照表中指定字段的分片规则，将表记录按行切分，分散存储到多个数据库中
+
+#### 垂直分隔
+
+> 纵向切分，将单个数据库的多个表按业务类型分类，分散存储到不同的数据库
+
+### Mycat
+
+![image-20220222112534511](imgs/image-20220222112534511.png)
+
+#### 分片规则
+
+![image-20220222113054171](imgs/image-20220222113054171.png)
+
+#### 拓扑结构&工作过程
+
+![image-20220222113347736](imgs/image-20220222113347736.png)
+
+> **当mycat收到一个SQL命令时**
+>
+> 1. **解析SQL命令涉及到的表**
+> 2. **然后看对表的配置，如果有分片规则，则获取SQL命令里分片字段的值，并匹配分片函数，获得分片列表**
+> 3. **然后将SQL命令发往对应的数据库服务器去执行**
+> 4. **最后收集和处理所有分片结果数据，并返回到客户端**
+
+#### 部署MyCAT服务
+
+##### 安装软件
+
+- 安装JDK
+
+  ```
+  [root@db57 ~]# yum -y install java-1.8.0-openjdk.x86_64
+  ```
+
+- 安装MyCAT软件包
+
+  ```
+  [root@db57 ~]# tar -xf Mycat-server-1.6-RELEASE-20161028204710-linux.tar.gz 
+  [root@db57 ~]# mv mycat/ /usr/local/
+  [root@db57 ~]# ls /usr/local/mycat/
+  bin  catlet  conf  lib  logs  version.txt
+  ```
+
+  
+
+##### Mycat目录结构
+
+```
+bin      		//mycat命令
+catlet  		//扩展功能 
+conf   		    //配置文件
+				.txt  和 ..properties 结尾的是 分片规则配置文件
+				.xml 结尾的是 mycat服务配置文件
+lib       		//mycat使用的jar包
+logs     		//mycat启动日志和运行日志
+version.txt     //mycat软件 说明文件
+
+# 重要配置文件说明
+# - server.xml	设置连接账号和逻辑库
+# - schema.xml	配置数据分片存储的表
+# - rule.xml	分片规则
+# - 其它文件	 分片规则配置文件
+```
+
+
+
+##### 修改配置
+
+- 创建连接用户
+
+  > 路径：**/usr/local/mycat/conf/server.xml**
+  >
+  > 定义客户端连接mycat服务时使用的用户名、密码、逻辑库名（虚拟库名）
+
+  ```shell
+  # 使用默认配置即可
+  [root@db57 mycat]# vim conf/server.xml
+          <user name="root"> 用户名
+                  <property name="password">123456</property> 密码
+                  <property name="schemas">TESTDB</property>  虚拟库名
+          </user>
+          <user name="user"> 用户名
+                  <property name="password">user</property> 密码
+                  <property name="schemas">TESTDB</property> 虚拟库名
+                  <property name="readOnly">true</property> 只读权限
+          </user> 
+  ```
+
+  
+
+- 配置数据分片
+  - 定义分片存储数据的表
+  - 定义数据节点
+  - 定义数据库服务器IP地址及端口
+
+- 配置数据库服务器
+  - 添加授权用户
+  - 创建存储数据的库
+
+- 启动服务
+
+- 客户端连接
+
+#### 测试配置
+
+##### 分片规则测试
+
+##### 存储数据
+
+##### 添加新库/表
