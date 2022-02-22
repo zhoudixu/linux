@@ -5594,22 +5594,504 @@ version.txt     //mycat软件 说明文件
   
 
 - 配置数据分片
+
+  [root@db57 mycat]# sed -i '56,77d' /usr/local/mycat/conf/schema.xml 
+
+  删除表中大段注释的部分
+
   - 定义分片存储数据的表
+
+    ![image-20220222142922410](imgs/image-20220222142922410.png)
+
+    ```
+    <schema ....>  
+    			<table name="表名" dataNode="数据库要存储在几台服务器里" rule="分片规则名"/ >
+    			<table ...>
+    			      ....
+    			</table>
+    </schema>
+    ```
+
+    
+
   - 定义数据节点
+
+    ![image-20220222143031544](imgs/image-20220222143031544.png)
+
+    ```
+    <dataNode  name="第几台数据库服务器" dataHost="主机名" database="库名" />
+    ```
+
+    
+
   - 定义数据库服务器IP地址及端口
 
+    ![image-20220222144059175](imgs/image-20220222144059175.png)
+
+    ```
+    	#定义数据库服务器ip地址
+    	<dataHost .....    >
+            ......
+    	</dataHost>
+    ```
+
+  ```xml
+  <!--测试使用配置范例-->
+  <?xml version="1.0"?>
+  <!DOCTYPE mycat:schema SYSTEM "schema.dtd">
+  <mycat:schema xmlns:mycat="http://io.mycat/">
+  
+          <schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100">
+                  <table name="travelrecord" dataNode="dn1,dn2,dn3" rule="auto-sharding-long" />
+                  <table name="company" primaryKey="ID" type="global" dataNode="dn1,dn2,dn3" />
+                  <table name="goods" primaryKey="ID" type="global" dataNode="dn1,dn2,dn3" />
+                  <table name="hotnews" primaryKey="ID" autoIncrement="true" dataNode="dn1,dn2,dn3"
+                             rule="mod-long" />
+                  <table name="employee" primaryKey="ID" dataNode="dn1,dn2,dn3"
+                             rule="sharding-by-intfile" />
+                  <table name="customer" primaryKey="ID" dataNode="dn1,dn2,dn3"
+                             rule="sharding-by-intfile">
+                          <childTable name="orders" primaryKey="ID" joinKey="customer_id"
+                                                  parentKey="id">
+                                  <childTable name="order_items" joinKey="order_id"
+                                                          parentKey="id" />
+                          </childTable>
+                          <childTable name="customer_addr" primaryKey="ID" joinKey="customer_id"
+                                                  parentKey="id" />
+                  </table>
+          </schema>
+          <dataNode name="dn1" dataHost="db51" database="db1" />
+          <dataNode name="dn2" dataHost="db52" database="db2" />
+          <dataNode name="dn3" dataHost="db53" database="db3" />
+          <dataHost name="db51" maxCon="1000" minCon="10" balance="0"
+                            writeType="0" dbType="mysql" dbDriver="native" switchType="1"  slaveThreshold="100">
+                  <heartbeat>select user()</heartbeat>
+                  <writeHost host="hostM1" url="192.168.4.51:3306" user="pljadmin"
+                                     password="123qqq...A">
+                  </writeHost>
+          </dataHost>
+          <dataHost name="db52" maxCon="1000" minCon="10" balance="0"
+                            writeType="0" dbType="mysql" dbDriver="native" switchType="1"  slaveThreshold="100">
+                  <heartbeat>select user()</heartbeat>
+                  <writeHost host="hostM2" url="192.168.4.52:3306" user="pljadmin"
+                                     password="123qqq...A">
+                  </writeHost>
+          </dataHost>
+          <dataHost name="db53" maxCon="1000" minCon="10" balance="0"
+                            writeType="0" dbType="mysql" dbDriver="native" switchType="1"  slaveThreshold="100">
+                  <heartbeat>select user()</heartbeat>
+                  <writeHost host="hostM3" url="192.168.4.53:3306" user="pljadmin"
+                                     password="123qqq...A">
+                  </writeHost>
+          </dataHost>
+  </mycat:schema>
+  ```
+
+  
+
 - 配置数据库服务器
+
   - 添加授权用户
   - 创建存储数据的库
 
+  ```shell
+  [root@db51 ~]# mysql -uroot -p123qqq...A -e 'CREATE DATABASE db1'
+  [root@db52 ~]# mysql -uroot -p123qqq...A -e 'CREATE DATABASE db2'
+  [root@db53 ~]# mysql -uroot -p123qqq...A -e 'CREATE DATABASE db3'
+  
+  [root@db51 ~]# mysql -uroot -p123qqq...A -e 'GRANT ALL ON *.* TO pljadmin@"%" IDENTIFIED BY "123qqq...A"'
+  # db52,53也添加同样权限的用户
+  ```
+
+  
+
 - 启动服务
 
+  > 启动准备：
+  >
+  > 1. 定义主机名
+  >
+  >    ```
+  >    [root@db57 mycat]# hostname
+  >    db57
+  >    ```
+  >
+  >    
+  >
+  > 2. 内存不能小于1G
+  >
+  >    ```
+  >    [root@db57 mycat]# cat /proc/meminfo 
+  >    MemTotal:        1446804 kB
+  >    ```
+  >
+  >    
+  >
+  > 3. 验证数据库服务器的授权用户
+  >
+  >    ```
+  >    [root@db57 mycat]# mysql -h192.168.4.51 -upljadmin -p123qqq...A 
+  >    [root@db57 mycat]# mysql -h192.168.4.52 -upljadmin -p123qqq...A 
+  >    [root@db57 mycat]# mysql -h192.168.4.53 -upljadmin -p123qqq...A 
+  >    ```
+  >
+  >    
+
+  ```shell
+  # 启动mycat服务
+  [root@db57 mycat]# /usr/local/mycat/bin/mycat start
+  Starting Mycat-server...
+  
+  # 查看端口号8066
+  [root@db57 mycat]# ss -tunlp | grep 8066
+  tcp    LISTEN     0      100      :::8066                 :::*                   users:(("java",pid=25096,fd=81))
+  
+  # 查看日志
+  [root@db57 mycat]# ls /usr/local/mycat/logs/
+  mycat.log  mycat.pid  wrapper.log
+  wrapper.log 用于分析mycat服务没有启动的原因
+  ```
+
+  
+
 - 客户端连接
+
+  ```mysql
+  [root@50mysql ~]# mysql -h192.168.4.57 -uroot -p123456 -P8066
+  # 此处使用的root账号和密码来源于mycat的server.xml中的配置
+  mysql> SHOW DATABASES;
+  +----------+
+  | DATABASE |
+  +----------+
+  | TESTDB   |
+  +----------+
+  
+  mysql> SHOW TABLES;
+  +------------------+
+  | Tables in TESTDB |
+  +------------------+
+  | company          |
+  | customer         |
+  | customer_addr    |
+  | employee         |
+  | goods            |
+  | hotnews          |
+  | orders           |
+  | order_items      |
+  | travelrecord     |
+  +------------------+
+  ```
+
+  
 
 #### 测试配置
 
 ##### 分片规则测试
 
+- 枚举分片规则 （sharding-by-intfile） ： 分片字段的值 必须在分片规则配置文件定义的值里 选择
+
+  > 分片字段：表使用了分片规则存储数据，建表时必须创建分片规则要求的表头名。枚举分片规则表里必须有名称叫sharding_id的表头名，数据管理员在分片规则配置文件定义分片字段的值
+
+  ![image-20220222162202245](imgs/image-20220222162202245.png)
+
+  ![image-20220222162216072](imgs/image-20220222162216072.png)
+
+- 求模分片规则  (mod-long): 根据分片字段值   与  指定数字的取余计算结果    存储数据
+
+  > 使用分片字段的值与数据库服务器的台数做取余计算。根据余数的值存储数据到后端的数据库服务器里
+  >
+  > 工作过程： 根据分片字段值与设定的数字求模结果存储数据
+  > 						 当余数是 0  数据存储到  dn1 
+  > 						 当余数是 1  数据存储到  dn2
+  > 						 当余数是 2  数据存储到  dn3
+
+  ![image-20220222165453722](imgs/image-20220222165453722.png)
+
+  ​		
+
+  ​		  ![image-20220222165732091](imgs/image-20220222165732091.png)
+
+  
+
+- 配置思路：
+
+  ```
+  1 确定使用分片规则的表叫什么名字名  （查看schema.xml 文件里 <table> ）
+  2 确定分片字段的表头名 （查看rule.xml文件里的   <tableRule> ）
+  3 确定分片规则使用的配置文件，定义分片字段的值（查看rule.xml文件里的<function> ）
+  4 修改分片规则的配置文件，定义分片字段的值
+  5 重启mycat服务 
+  6 根据分片规则建表存储数据
+  7 在数据库服务器本机查看存储的数据
+  ```
+
+  
+
+  ```shell
+  # 1. sharding-by-intfile测试
+  #找使用sharding-by-intfile分片规则的表名
+  [root@db57 mycat]# vim /usr/local/mycat/conf/schema.xml 
+  <table name="employee" primaryKey="ID" dataNode="dn1,dn2,dn3"
+                             rule="sharding-by-intfile" />
+  
+  #创建employee分片字段名  sharding_id
+  [root@db57 mycat]# vim /usr/local/mycat/conf/rule.xml 
+  <tableRule name="sharding-by-intfile">
+                  <rule>
+                    <columns>sharding_id</columns> //分片字段名
+                    <algorithm>hash-int</algorithm> //算法名(存储数据的计算规则)
+                  </rule>
+          </tableRule>
+  
+  #找到sharding-by-intfile分片规则配置文件partition-hash-int.txt
+  [root@db57 mycat]# vim /usr/local/mycat/conf/rule.xml
+  <function name="hash-int" //算法名
+                  class="io.mycat.route.function.PartitionByFileMap"> //算法调用的执行程序
+                  <property name="mapFile">partition-hash-int.txt</property> //配置文件名
+          </function>
+  
+  #编辑sharding-by-intfile分片规则配置文件partition-hash-int.txt,设置分片字段的值
+  [root@db57 mycat]# vim  /usr/local/mycat/conf/partition-hash-int.txt
+  10000=0	//0表示第1台数据库服务器 对应dn1
+  10010=1	//1表示第2台数据库服务器 对应dn2
+  10020=2	//2表示第1台数据库服务器 对应dn3
+  分片字段值=第几台数据库服务器
+  
+  [root@db57 mycat]# /usr/local/mycat/bin/mycat restart
+  Stopping Mycat-server...
+  Stopped Mycat-server.
+  Starting Mycat-server...
+  [root@db57 mycat]# ss -tunlp | grep 8066
+  tcp    LISTEN     0      100      :::8066                 :::*                   users:(("java",pid=13967,fd=81))
+  #根据分片规则建表并存储数据
+  #注意：！！！！建表或存储数据都必须进入到TESTDB库下执行！！！！
+  [root@50mysql ~]# mysql -uroot -p123456 -h192.168.4.57 -P8066
+  mysql> SHOW DATABASE;
+  mysql> USE TESTDB;
+  
+  mysql> CREATE TABLE employee(sharding_id int,name char(10),basic int);
+  mysql> INSERT INTO employee VALUES(10000,"jim",10000);
+  ERROR 1064 (HY000): partition table, insert must provide ColumnList
+  # 在分布式存储中插入数据必须指定字段名，否则报错
+  mysql> INSERT INTO employee(sharding_id,name,basic) VALUES(10000,"jim",10000);
+  Query OK, 1 row affected (0.04 sec)
+  mysql> INSERT INTO employee(sharding_id,name,basic) VALUES(10010,"tom",20000);
+  Query OK, 1 row affected (0.05 sec)
+  mysql> INSERT INTO employee(sharding_id,name,basic) VALUES(10020,"lili",30000);
+  Query OK, 1 row affected (0.05 sec)
+  mysql> INSERT INTO employee(sharding_id,name,basic) VALUES(10030,"duncan",40000);
+  ERROR 1064 (HY000): can't find any valid datanode :EMPLOYEE -> SHARDING_ID -> 10030	
+  # 超出分片字段配置文件指报错
+  mysql> SELECT * FROM employee;
+  +-------------+------+-------+
+  | sharding_id | name | basic |
+  +-------------+------+-------+
+  |       10020 | lili | 30000 |
+  |       10010 | tom  | 20000 |
+  |       10000 | jim  | 10000 |
+  +-------------+------+-------+
+  3 rows in set (0.04 sec)
+  # 在数据库服务器本机查看数据
+  [root@db51 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db1.employee'
+  +-------------+------+-------+
+  | sharding_id | name | basic |
+  +-------------+------+-------+
+  |       10000 | jim  | 10000 |
+  +-------------+------+-------+
+  [root@db52 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db2.employee'
+  +-------------+------+-------+
+  | sharding_id | name | basic |
+  +-------------+------+-------+
+  |       10010 | tom  | 20000 |
+  +-------------+------+-------+
+  [root@db53 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db3.employee'
+  +-------------+------+-------+
+  | sharding_id | name | basic |
+  +-------------+------+-------+
+  |       10020 | lili | 30000 |
+  +-------------+------+-------+
+  
+  ```
+
+  ```shell
+  # 2. mod-long测试
+  				 
+  # 确定使用分片规则的表叫什么名字名  （查看schema.xml 文件里 <table> ）
+  [root@db57 mycat]# vim /usr/local/mycat/conf/schema.xml
+   <table name="hotnews" primaryKey="ID" autoIncrement="true" dataNode="dn1,dn2,dn3"
+                             rule="mod-long" />
+  
+  # 确定分片字段的表头名 （查看rule.xml文件里的   <tableRule> ）
+  <tableRule name="mod-long">
+                  <rule>
+                          <columns>id</columns>
+                          <algorithm>mod-long</algorithm>
+                  </rule>
+          </tableRule>
+  # 确定分片规则使用的配置文件，定义分片字段的值 （查看rule.xml文件里的   <function> 
+  <function name="mod-long" class="io.mycat.route.function.PartitionByMod">
+                  <!-- how many data nodes -->
+                  <property name="count">3</property>
+          </function>
+  
+  # 修改分片规则的配置文件，定义分片字段的值 （没有配置，只需要定义分片与数字几做求模计算）
+  # 重启mycat服务  （配置文件没有做过修改 ，服务不需要重启）
+  # 创建表并存储数据
+  [root@50mysql ~]# mysql -uroot -p123456 -h192.168.4.57 -P8066
+  mysql> SHOW DATABASES;
+  mysql> USE TESTDB;
+  mysql> CREATE TABLE hotnews(id int,title char(30),comment varchar(150));
+  mysql> INSERT INTO hotnews(id,title,comment) VALUES(3,"a","aaa"),(6,"b","bbb"),(9,"c","ccc");
+  mysql> INSERT INTO hotnews(id,title,comment) VALUES(4,"d","ddd"),(7,"e","eee"),(10,"f","fff");
+  mysql> INSERT INTO hotnews(id,title,comment) VALUES(5,"g","ggg"),(8,"h","hhh"),(11,"i","iii");
+  
+  [root@db51 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db1.hotnews'
+  +------+-------+---------+
+  | id   | title | comment |
+  +------+-------+---------+
+  |    3 | a     | aaa     |
+  |    6 | b     | bbb     |
+  |    9 | c     | ccc     |
+  +------+-------+---------+
+  
+  [root@db52 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db2.hotnews'
+  +------+-------+---------+
+  | id   | title | comment |
+  +------+-------+---------+
+  |    4 | d     | ddd     |
+  |    7 | e     | eee     |
+  |   10 | f     | fff     |
+  +------+-------+---------+
+  
+  [root@db53 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db3.hotnews'
+  +------+-------+---------+
+  | id   | title | comment |
+  +------+-------+---------+
+  |    5 | g     | ggg     |
+  |    8 | h     | hhh     |
+  |   11 | i     | iii     |
+  +------+-------+---------+
+  
+  ```
+
+  
+
 ##### 存储数据
 
+> 根据分片规则和对应算法创建表结构
+>
+> 存储数据时必须指定字段名列表-具体可以参考上述分片规则测试用例
+
 ##### 添加新库/表
+
+```
+创建表：必须根据表使用的分片规则建表,具体操作如下：
+1 确定使用分片规则的表叫什么名字名  （查看schema.xml 文件里 <table> ）
+ #没有使用分片规则 所以建表时，表头名没有限制 步骤 2-5 也不要操作
+2 确定分片字段的表头名 （查看rule.xml文件里的   <tableRule> ）
+3 确定分片规则使用的配置文件，定义分片字段的值 （查看rule.xml文件里的   <function> ）
+4 修改分片规则的配置文件，定义分片字段的值
+5 重启mycat服务 
+6 创建表并存储数据
+```
+
+
+
+- 添加新库
+
+  > 修改server.xml文件
+
+  ```XML
+  [root@db57 mycat]# vim /usr/local/mycat/conf/server.xml 
+  <user name="root">
+                  <property name="password">123456</property>
+                  <property name="schemas">TESTDB,GAMEDB</property>
+                  </user>
+   <user name="user">
+                  <property name="password">user</property>
+                  <property name="schemas">TESTDB,GAMEDB</property>
+                  <property name="readOnly">true</property>
+   </user>
+  ```
+
+  
+
+- 添加新表
+
+  > 修改**schema.xml**文件，**该文件中表名必须唯一 不可以重复**
+  >
+  > **未使用分片规则的表，数据会存储在所有的数据节点**
+
+  ```mysql
+  [root@db57 mycat]# vim /usr/local/mycat/conf/schema.xml
+  <schema name="GAMEDB" checkSQLschema="false" sqlMaxLimit="100">
+                   <table name="user" primaryKey="ID" dataNode="dn1,dn2,dn3" rule="mod-long" />
+                    <table name="salary" primaryKey="ID" dataNode="dn1,dn2,dn3" type="global" />
+  </schema>
+  # salary表未使用分片规则
+  [root@db57 mycat]# /usr/local/mycat/bin/mycat restart
+  [root@db57 mycat]# ss -tunlp | grep 8066
+  tcp    LISTEN     0      100      :::8066                 :::*                   users:(("java",pid=27992,fd=81))
+  
+  [root@50mysql ~]# mysql -uroot -p123456 -h192.168.4.57 -P8066
+  mysql> SHOW DATABASES;
+  +----------+
+  | DATABASE |
+  +----------+
+  | GAMEDB   |
+  | TESTDB   |
+  +----------+
+  mysql> SHOW TABLES;
+  +------------------+
+  | Tables in GAMEDB |
+  +------------------+
+  | salary           |
+  | user             |
+  +------------------+
+  
+  mysql> CREATE TABLE user(id int,name char(10),password char(6));
+  mysql> INSERT INTO user(id,name,password) VALUES(5,"tim","123"),(5,"lili","456");
+  mysql> CREATE TABLE salary(name char(10),password varchar(30));
+  mysql> INSERT INTO salary VALUES("tim","123");
+  mysql> INSERT INTO salary VALUES("bob","456");
+  
+  [root@db53 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db3.user'
+  +------+------+----------+
+  | id   | name | password |
+  +------+------+----------+
+  |    5 | tim  | 123      |
+  |    5 | lili | 456      |
+  +------+------+----------+
+  
+  
+  [root@db51 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db1.salary'
+  +------+----------+
+  | name | password |
+  +------+----------+
+  | tim  | 123      |
+  | bob  | 456      |
+  +------+----------+
+  [root@db52 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db2.salary'
+  +------+----------+
+  | name | password |
+  +------+----------+
+  | tim  | 123      |
+  | bob  | 456      |
+  +------+----------+
+  [root@db53 ~]# mysql -uroot -p123qqq...A -e 'SELECT * FROM db3.salary'
+  +------+----------+
+  | name | password |
+  +------+----------+
+  | tim  | 123      |
+  | bob  | 456      |
+  +------+----------+
+  
+  
+  
+  ```
+
+  
+
+51 52 53开启半同步复制功能
+
+51 主 52 53 从
