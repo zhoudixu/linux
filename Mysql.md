@@ -6092,7 +6092,456 @@ version.txt     //mycat软件 说明文件
 
   
 
-51 52 53开启半同步复制功能
+## MHA集群
 
-51 主 52 53 从
+### MHA介绍
+
+- 简介
+
+  ![image-20220223094536622](imgs/image-20220223094536622.png)
+
+  **缺点：切换过程中可能会存在数据丢失**
+
+- 组成
+
+  - MHA Manager（管理节点）
+
+    > - 管理所有数据库服务器
+    > - 可以单独部署在一台独立的机器上
+    > - 也可以部署在某台数据库服务器上
+
+  - MHA Node（数据节点）
+
+    > - 存储数据的MySQL服务器
+    > - 运行在每台MySQL服务器上
+
+### MHA架构
+
+![image-20220223095343501](imgs/image-20220223095343501.png)
+
+- 工作过程
+  - 由Manager定时探测集群中的master节点
+  - 当master故障时，Manager自动将拥有最新数据的slave提升为新的master
+  - 如果有多个从的话，剩下的从会自动更新为新主服务器的从主机
+
+### 部署MHA集群
+
+#### 环境准备
+
+> 测试环境拓扑：
+>
+> ![image-20220223153850051](imgs/image-20220223153850051.png)
+
+- 公共配置
+
+  在MHA Node服务器做以下配置
+
+  ```shell
+  ]# vim /etc/my.cnf
+  [mysqld]
+  plugin-load="rpl_semi_sync_master=semisync_master.so;rpl_semi_sync_slave=semisync_slave.so"
+  rpl_semi_sync_master_enabled=1
+  rpl_semi_sync_slave_enabled=1
+  server_id=编号		#所有数据节点的id不可以重复
+  log_bin=日志名
+  relay_log_purge=0	#禁止自动删除中继日志文件
+  ]# systemctl restart mysqld
+  mysql> GRANT REPLICATION SLAVE ON *.* TO repluser@"%" IDENTIFIED BY "123qqq...A";
+  # 所有数据节点的用户授权必须相同
+  ```
+
+  
+
+- 配置SSH密钥对认证登陆
+
+  - MHA Node彼此之间ssh免密登录
+  - MHA Manager ssh免密登录MHA Node
+
+  ![image-20220223103543136](imgs/image-20220223103543136.png)
+
+- 配置一主多从同步结构
+
+  - 选择一台Node查看master日志信息
+
+    ```shell
+    ]# mysql -uroot -p123qqq...A -e 'SHOW MASTER STATUS'
+    +-----------------+----------+--------------+------------------+-------------------+
+    | File            | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
+    +-----------------+----------+--------------+------------------+-------------------+
+    | master51.000001 |      441 |              |                  |                   |
+    +-----------------+----------+--------------+------------------+-------------------+
+    ```
+
+    
+
+  - 其余Node节点分别指定主服务器信息
+
+    ```mysql
+    ]# mysql -uroot -p密码
+    mysql> CHANGE MASTER TO master_host="192.168.4.51",master_user="repluser",master_password="123qqq...A",master_log_file="master51.000001",master_log_pos=441;
+    mysql> START SLAVE;
+    mysql> SHOW SLAVE STATUS \G		# 确认SLAVE状态是否正常
+    Slave_IO_Running: Yes
+    Slave_SQL_Running: Yes
+    ```
+
+
+
+#### 配置Manager节点
+
+- 安装软件包
+
+  - 安装依赖包
+
+    ```shell
+    # 在所有主机上安装系统自带的perl软件包
+    ]# yum -y install perl-ExtUtils-* perl-CPAN*
+    # 所有主机上安装共享的perl软件包
+    ]# cd mha-soft-student/
+    ]# ls
+    app1.cnf                                        perl-Log-Dispatch-2.41-1.el7.1.noarch.rpm
+    master_ip_failover                              perl-Mail-Sender-0.8.23-1.el7.noarch.rpm
+    mha4mysql-manager-0.56.tar.gz                   perl-Mail-Sendmail-0.79-21.el7.art.noarch.rpm
+    mha4mysql-node-0.56-0.el6.noarch.rpm            perl-MIME-Lite-3.030-1.el7.noarch.rpm
+    perl-Config-Tiny-2.14-7.el7.noarch.rpm          perl-MIME-Types-1.38-2.el7.noarch.rpm
+    perl-Email-Date-Format-1.002-15.el7.noarch.rpm  perl-Parallel-ForkManager-1.18-2.el7.noarch.rpm
+    ]# yum -y install perl-*.rpm
+    ```
+
+    
+
+  - 安装提供MHA程序的软件包
+
+    ```shell
+    ]# tar -xf mha4mysql-manager-0.56.tar.gz
+    ]# cd mha4mysql-manager-0.56/
+    mha4mysql-manager-0.56]# ls
+    AUTHORS  bin  COPYING  debian  inc  lib  Makefile.PL  MANIFEST  META.yml  README  rpm  samples  t  tests
+    mha4mysql-manager-0.56]# perl Makefile.PL && make && make install
+    *** Module::AutoInstall version 1.03
+    *** Checking for Perl dependencies...
+    [Core Features]
+    - DBI                   ...loaded. (1.627)
+    - DBD::mysql            ...missing.
+    - Time::HiRes           ...loaded. (1.9725)
+    - Config::Tiny          ...loaded. (2.14)
+    - Log::Dispatch         ...loaded. (2.41)
+    - Parallel::ForkManager ...loaded. (1.18)
+    - MHA::NodeConst        ...missing.
+    ==> Auto-install the 2 mandatory module(s) from CPAN? [y] ^C
+    # MHA软件使用perl语言编写，所以需要安装perl相关的软件包，然后使用perl进行编译和安装。根据此处的提醒，有两个软件缺失，通过下述方法思路可以进行修复
+    mha4mysql-manager-0.56]# yum list | grep -i perl | grep -i mysql
+    perl-DBD-MySQL.x86_64                     4.023-6.el7                local_repo
+    mha4mysql-manager-0.56]# yum -y install perl-DBD-MySQL.x86_64
+    mha4mysql-manager-0.56]# yum -y install ../mha4mysql-node-0.56-0.el6.noarch.rpm
+    mha4mysql-manager-0.56]# perl Makefile.PL && make && make install
+    # masterha_ 按2次tab键列出所有命令,表示安装成功
+    ]# masterha_
+    masterha_check_repl       masterha_conf_host        masterha_master_switch    
+    masterha_check_ssh        masterha_manager          masterha_secondary_check  
+    masterha_check_status     masterha_master_monitor   masterha_stop 
+    ```
+
+    
+
+- 相关命令
+
+  ![image-20220223121541068](imgs/image-20220223121541068.png)
+
+- 编写主配置文件
+
+  ![image-20220223141325243](imgs/image-20220223141325243.png)
+
+  ![image-20220223141348264](imgs/image-20220223141348264.png)
+
+  
+
+- 创建故障切换脚本
+
+  > 1. 添加执行权限
+  >
+  > 2. 手动添加如下代码
+
+  ```shell
+  mha-soft-student]# cp master_ip_failover /etc/mha/
+  mha-soft-student]# chmod +x /etc/mha/master_ip_failover
+  mha-soft-student]# vim +35 /etc/mha/master_ip_failover
+  ...
+  my $vip = '192.168.4.100/24';  # Virtual IP 
+  my $key = "1";					# 地址编号
+  my $ssh_start_vip = "/sbin/ifconfig eth0:$key $vip";	#绑定VIP地址
+  my $ssh_stop_vip = "/sbin/ifconfig eth0:$key down";		#释放VIP地址
+  ...
+  
+  ```
+
+  
+
+#### 配置Node节点
+
+- 部署VIP地址
+
+  > 在主库部署VIP地址-把故障切换脚本里指定的vip地址，配置在当前主从结构中的主数据库服务器主机上
+  >
+  > ```shell
+  > ]# which ifconfig  || yum -y install net-tools
+  > #说明：要保证3台数据库都有ifconfig 命令,因为之前的故障切换脚本会使用ifconfig命令
+  > ]# ifconfig eth0:1 192.168.4.100/24
+  > ```
+  >
+  > 查看VIP地址
+  >
+  > ```shell
+  > ]# ifconfig eth0:1
+  > ```
+  >
+  > 
+
+- 安装软件包
+
+  > 把之前拷贝给Manager节点的软件包也拷贝到所有Node节点
+
+  - 安装共享的perl依赖包
+
+    ```shell
+    ]# cd mha-soft-student/
+    ]# yum -y install perl-*.rpm
+    ```
+
+  - 安装mha_node包
+
+    ```shell
+  ]# yum -y install mha4mysql-node-0.56-0.el6.noarch.rpm
+    ```
+
+    
+
+- 添加监控用户-只需在master服务器添加 在slave服务器查看
+
+  - 在主服务器添加
+
+    ```mysql
+    # 该监控用户的账号和密码来源于app1.cnf的配置
+    mysql> GRANT ALL ON *.* TO plj@"%" IDENTIFIED BY "123qqq...A";
+    ```
+
+  - 在从服务器查看
+
+    ```shell
+  [root@db52 ~]# mysql -uroot -p123qqq...A -e 'SELECT user,host FROM mysql.user WHERE user="plj"'
+    +------+------+
+    | user | host |
+    +------+------+
+    | plj  | %    |
+    +------+------+
+    
+    [root@db53 ~]# mysql -uroot -p123qqq...A -e 'SELECT user,host FROM mysql.user WHERE user="plj"'
+    +------+------+
+    | user | host |
+    +------+------+
+    | plj  | %    |
+    +------+------+
+    ```
+  
+  
+
+### MHA测试
+
+#### 测试集群环境
+
+- 测试配置
+
+  - 测试SSH配置
+
+    ```shell
+    [root@db57 ~]# masterha_check_ssh --conf=/etc/mha/app1.cnf
+    Wed Feb 23 15:10:22 2022 - [info] All SSH connection tests passed successfully.
+    ```
+
+    
+
+  - 测试主从同步配置
+
+    ```shell
+    [root@db57 ~]# masterha_check_repl --conf=/etc/mha/app1.cnf
+    MySQL Replication Health is OK.
+    ```
+
+    
+
+- 启动管理服务
+
+  ![image-20220223153416965](imgs/image-20220223153416965.png)
+
+  ```shell
+  [root@db57 ~]# nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+  # ignore_last_failover:做多次VIP迁移(默认只做一次VIP迁移)
+  # remove_dead_master_conf:对于已经删除的宕机配置，不会在设备恢复后自动还原，需要再次手工添加
+  [root@db57 ~]# jobs
+  [1]+  运行中               nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+  [root@db57 ~]# masterha_check_status --conf=/etc/mha/app1.cnf
+  app1 (pid:27696) is running(0:PING_OK), master:192.168.4.51
+  
+  ```
+
+  
+
+#### 访问集群
+
+- 主服务器用户授权
+
+  ```mysql
+  [root@db51 mha-soft-student]# mysql -uroot -p123qqq...A
+  mysql> CREATE DATABASE db1;
+  mysql> CREATE TABLE db1.a(id int);
+  mysql> GRANT ALL ON db1.* TO yaya66@"%" IDENTIFIED BY "123qqq...A";
+  ```
+
+  
+
+- 客户端访问
+
+  ```mysql
+  [root@50mysql ~]# mysql -h192.168.4.100 -uyaya66 -p123qqq...A
+  mysql> INSERT INTO db1.a VALUES(99);
+  mysql> SELECT * FROM db1.a;
+  +------+
+  | id   |
+  +------+
+  |   99 |
+  +------+
+  ```
+
+  
+
+#### 测试高可用
+
+- 模拟主服务器故障
+
+  ```SHELL
+  # 停止host51主机的数据库服务
+  [root@db51 mha-soft-student]# systemctl stop mysqld
+  
+  ```
+
+  
+
+  管理服务监视到当前master服务宕机后，管理服务会停止。要让管理服务监视新的主数据库服务器，需要管理者手动启动管理服务才可以。可以考虑使用计划任务执行监视管理服务的脚本-脚本的功能发现管理服务一旦停止，就启动管理服务
+
+  ```SHELL
+  # 查看管理服务的状态,并启动管理服务再次查看状态(会监视新的主数据库服务器）
+  [root@db57 ~]# jobs
+  [1]+  运行中               nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+  [root@db57 ~]# jobs
+  [1]+  完成                  nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover
+  [root@db57 ~]#masterha_check_status --conf=/etc/mha/app1.cnf
+  app1 is stopped(2:NOT_RUNNING)
+  [root@db57 ~]nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+  [root@db57 ~]#masterha_check_status --conf=/etc/mha/app1.cnf
+  app1 (pid:28194) is running(0:PING_OK), master:192.168.4.52
+  [root@db57 ~]# jobs
+  [1]+  运行中               nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+  
+  [root@db57 ~]# vim /etc/mha/app1.cnf
+  # 配置文件中宕机的server配置已经被删除
+  ```
+
+  ```SHELL
+  # 在host52或host53 主机查看vip地址（谁有vip 谁就是新的主数据库服务器）
+  [root@db52 ~]# ifconfig eth0:1
+  eth0:1: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+          inet 192.168.4.100  netmask 255.255.255.0  broadcast 192.168.4.255
+  
+  # 在剩下的另一台数据库服务器查看主服务器IP地址（自动做新主服务器的slave主机）
+  [root@db53 mha-soft-student]# mysql -uroot -p123qqq...A
+  mysql> SHOW SLAVE STATUS \G
+  Master_Host: 192.168.4.52
+  Slave_IO_Running: Yes
+  Slave_SQL_Running: Yes
+  ```
+
+  
+
+- 客户端访问集群
+
+  ```
+  # 客户端host50 依然可以连接VIP地址访问数据库服务
+  [root@50mysql ~]# mysql -h192.168.4.100 -uyaya66 -p123qqq...A
+  mysql> SELECT * FROM db1.a;
+  +------+
+  | id   |
+  +------+
+  |   99 |
+  +------+
+  ```
+
+  
+
+#### 修复故障服务器
+
+- 配置数据库服务器
+
+  ![image-20220223172645943](imgs/image-20220223172645943.png)
+
+  ```mysql
+  [root@db51 ~]# systemctl restart mysqld
+  [root@db52 ~]# mysqldump -uroot -p123qqq...A --master-data -B db1 > /root/db1.sql
+  [root@db52 ~]# mysql -uroot -p123qqq...A -e 'SHOW MASTER STATUS'
+  mysql: [Warning] Using a password on the command line interface can be insecure.
+  +-----------------+----------+--------------+------------------+-------------------+
+  | File            | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
+  +-----------------+----------+--------------+------------------+-------------------+
+  | master52.000001 |      441 |              |                  |                   |
+  +-----------------+----------+--------------+------------------+-------------------+
+  [root@db52 ~]# scp db1.sql 192.168.4.51:
+  [root@db51 ~]# mysql -uroot -p123qqq...A < /root/db1.sql
+  [root@db51 ~]# mysql -uroot -p123qqq...A
+  mysql> CHANGE MASTER TO master_host="192.168.4.52",master_user="repluser",master_password="123qqq...A",master_log_file="master52.000001",master_log_pos=441;
+  mysql> START SLAVE;
+  mysql> SHOW SLAVE STATUS \G
+  Master_Host: 192.168.4.52
+  Slave_IO_Running: Yes
+  Slave_SQL_Running: Yes
+  ```
+
+  
+
+- 配置管理服务器
+
+  ![image-20220223172713706](imgs/image-20220223172713706.png)
+
+  ```shell
+  
+  [root@db57 ~]# vim /etc/mha/app1.cnf	#把51主机添加到配置文件里
+  [server1]
+  candidate_master=1
+  hostname=192.168.4.51
+  port=3306
+  
+  [root@db57 ~]# masterha_stop --conf=/etc/mha/app1.cnf
+  Stopped app1 successfully.
+  [1]+  退出 1                nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover
+  
+  [root@db57 ~]#nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+  [1] 29264
+  
+  [root@db57 ~]# jobs
+  [1]+  运行中               nohup masterha_manager --conf=/etc/mha/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+  
+  [root@db57 ~]# masterha_check_status --conf=/etc/mha/app1.cnf
+  app1 (pid:29264) is running(0:PING_OK), master:192.168.4.52
+  
+  ```
+
+  
+
+3台vm7虚拟机，不需要sql  
+
+  
+
+  
+
+  
+
+  
 
