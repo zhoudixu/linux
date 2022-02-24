@@ -6851,29 +6851,852 @@ IST	Incremental State Transfer 增量同步
 
 #### Mysql体系结构
 
+![image-20220224140629387](imgs/image-20220224140629387.png)
+
+> 管理工具： 安装MySQL服务软件后，提供的管理命令
+>
+> 连接池：验证客户端连接时使用的用户和密码是否正确 同时验证数据库服务器,是否有mysqld进程相应连接
+>
+> SQL接口: 把用户登录后执行的SQL命令传递给本机的mysqld 线程
+>
+> 分析器：检查SQL命令的语法以及对数据的访问权限
+>
+> 优化器：对要执行的 SQL命令做优化（是内存自动功能程序
+>
+> 查询缓存：划分出一定的物理内存空间给MySQL服务存储查找过的数据(默认没有启用，因为真实的生产环境都是使用单独的服务器提供内存缓存)
+>
+> 存储引擎：当对表里的数据做查询（select） 或写操作（insert /update /delete）会调用存储引擎对表中的数据做处理，至于如何处理取决表使用的存储引擎的功能。每种存储引擎的功能和数据存储方式都不相同。
+>
+> 文件系统：存储数据的硬盘
+
 #### Mysql工作过程
 
+![image-20220224150055542](imgs/image-20220224150055542.png)
+
+
+
 #### 存储引擎介绍
+
+![image-20220224150209975](imgs/image-20220224150209975.png)
 
 ### 存储引擎管理
 
 #### 查看存储引擎
 
+- 查看数据库服务支持的存储引擎和默认使用的存储引擎
+
+  ```mysql
+  mysql> SHOW ENGINES;
+  +--------------------+---------+----------------------------------------------------------------+--------------+------+------------+
+  | Engine             | Support | Comment                                                        | Transactions | XA   | Savepoints |
+  +--------------------+---------+----------------------------------------------------------------+--------------+------+------------+
+  | InnoDB             | DEFAULT | Supports transactions, row-level locking, and foreign keys     | YES          | YES  | YES        |
+  | MRG_MYISAM         | YES     | Collection of identical MyISAM tables                          | NO           | NO   | NO         |
+  | MEMORY             | YES     | Hash based, stored in memory, useful for temporary tables      | NO           | NO   | NO         |
+  | BLACKHOLE          | YES     | /dev/null storage engine (anything you write to it disappears) | NO           | NO   | NO         |
+  | MyISAM             | YES     | MyISAM storage engine                                          | NO           | NO   | NO         |
+  | CSV                | YES     | CSV storage engine                                             | NO           | NO   | NO         |
+  | ARCHIVE            | YES     | Archive storage engine                                         | NO           | NO   | NO         |
+  | PERFORMANCE_SCHEMA | YES     | Performance Schema                                             | NO           | NO   | NO         |
+  | FEDERATED          | NO      | Federated MySQL storage engine                                 | NULL         | NULL | NULL       |
+  +--------------------+---------+----------------------------------------------------------------+--------------+------+------------+
+  ```
+
+  
+
+- 查看当前已有表使用的存储引擎-方法一
+
+  ```mysql
+  mysql> SHOW CREATE TABLE tarena.user \G
+  ...
+    PRIMARY KEY (`id`)
+  ) ENGINE=InnoDB AUTO_INCREMENT=71 DEFAULT CHARSET=latin1
+  ```
+
+- 查看当前已有表使用的存储引擎-方法二
+
+  ```mysql
+  mysql> SHOW TABLE STATUS FROM 库 WHERE name="表名" \G
+  ```
+
+  ```
+  mysql> SHOW TABLE STATUS FROM tarena WHERE name="user" \G
+  *************************** 1. row ***************************
+             Name: user
+           Engine: InnoDB
+          Version: 10
+       Row_format: Dynamic
+             Rows: 15
+   Avg_row_length: 1092
+      Data_length: 16384
+  Max_data_length: 0
+     Index_length: 0
+        Data_free: 0
+   Auto_increment: 71
+      Create_time: 2022-02-18 14:09:28
+      Update_time: NULL
+       Check_time: NULL
+        Collation: latin1_swedish_ci
+         Checksum: NULL
+   Create_options: 
+          Comment: 
+  1 row in set (0.00 sec)
+  
+  ```
+
+  
+
 #### 修改存储引擎
+
+- 修改数据库服务默认使用的存储引擎
+
+  ```mysql
+  mysql> SHOW VARIABLES LIKE "%engine%";
+  +----------------------------------+--------+
+  | Variable_name                    | Value  |
+  +----------------------------------+--------+
+  | default_storage_engine           | InnoDB |
+  | default_tmp_storage_engine       | InnoDB |
+  | disabled_storage_engines         |        |
+  | internal_tmp_disk_storage_engine | InnoDB |
+  +----------------------------------+--------+
+  
+  mysql> system vim /etc/my.cnf
+  [mysqld]
+  default_storage_engine=存储引擎
+  ...
+  mysql> system systemctl restart mysqld
+  ```
+
+  
+
+- 建表时指定表使用的存储引擎
+
+  ```mysql
+  # 建表时，不指定表使用的存储引擎，就会使用默认存储引擎
+  mysql> CREATE TABLE 库.表(字段列表)ENGINE=存储引擎名;
+  ```
+
+  
+
+- 修改表使用的存储引擎(一般在表存储存储数据之前修改)
+
+  ```
+  说明：存储引擎修改了，存储数据的位置也会改变
+  mysql> ALTER TABLE 库.表 ENGINE=存储引擎名;
+  ```
+
+  
 
 ### 常用存储引擎
 
 #### MYISAM
 
+> 主要特点：
+>
+> - 支持表级锁
+> - 不支持事务、事务回滚、外键
+>
+> 表文件：
+>
+> - 表名.frm		//表结构，存储表头信息	mysql> desc  库.表；
+> - 表名.MYI       //索引                                 mysql> show index from  库.表;
+> - 表名.MYD     //数据                                 mysql> select  * from  库.表;
+
 #### INNODB
+
+> 主要特点：
+>
+> - 支持行级锁
+> - 支持事务、事务回滚、外键
+>
+> 表文件：
+>
+> - 表名.frm	//表结构，存储表头信息	mysql> desc  库.表；
+> - 表名.ibd     //存储表的索引信息+表的数据信息  
+>   - mysql> select  * from  库.表;
+>   - mysql> show index from  库.表;
+>
+> 事务日志文件-/var/lib/mysql
+>
+> - ib_logfile0
+> - ib_logfile1
 
 #### 锁机制
 
+> 给表加锁，是为了解决客户端并发访问的冲突问题
+
+- 锁类型：根据对数据的访问类型加锁
+
+  - 读锁
+
+    > 又称为共享锁，支持并发读
+    >
+    > 加了读锁表，允许多个访问同时查询一张表。
+
+  - 写锁
+
+    > 又称为排它锁或互斥锁，是独占锁，上锁期间其它线程不能读表或写表
+    >
+    > 对数据做写访问（写访问通常指定的是 insert | delete | update ）
+    >
+    > 加了写锁的表，同一时间只允许1个连接做写操作，后续的读和写都得等待，等待写锁释放后，才允许后续的读或写访问。
+
+- 锁粒度
+
+  - 行级锁
+
+    > 仅对表中被访问的行分别加锁，没有被访问的行不加锁
+
+  - 表级锁
+
+    > 只要是对表做访问，就会把整张表加锁(不管访问的是1行 还是更多行)
+
+- 相关命令
+
+  ![image-20220224162758005](imgs/image-20220224162758005.png)
+
+- ...
+
 #### 事务介绍
+
+> 指的是一组不可分割的SQL操作
+>
+> 使用Innodb 存储引擎的表才支持事务
+>
+> 事务处理可以用来维护数据的完整性，保证成批的 SQL 语句要么全部执行，要么全部不执行
+>
+> 事务用来管理对数据的 insert,update,delete 操作
 
 #### 事务特性
 
+- Atomic：原子性
+
+  > 一个事务（transaction）中的所有操作，要么全部完成，要么全部不完成
+
+- Consistency：一致性
+
+  > 在事务开始之前和事务结束以后，数据库的完整性不会被破坏
+  >
+  > 执行sql命令时，敲回车前 称为事务开始之前
+  >
+  > 执行sql命令时，敲回车后 称为事务结束以后
+
+- Isolation：隔离性
+
+  > 数据库允许多个并发事务同时对其数据进行读写和修改而互不影响
+  >
+  > MySQL服务是支持多并连接的服务，同一时刻可是同时接收多个客户端的访问，如果访问的是innodb存储引擎的表，彼此不知道操作的是同1张表
+
+- Durability：持久性
+
+  > 事务处理结束后，对数据的修改就是永久的，即便系统故障也不会丢失
+  >
+  > 执行回车后，事务就结束。数据会永久有效。
+
+##### 事务隔离解决的问题-脏读、不可重复读、幻读
+
+- 脏读： 读到了其他事务未提交的数据，读到的数据并不一定是最终存储到数据库里的数据。
+- 可重复读：可重复读指的是在一个事务内，最开始读到的数据和事务结束前的任意时刻读到的同一批数据都是一致的
+- 不可重复读：一个事务先后读取同一条记录，而事务在两次读取之间该数据被其它事务所修改，则两次读取的数据不同，这种就是不可重复读
+- 幻读：一个事务按相同的查询条件重新读取以前检索过的数据，却发现其他事务插入了满足其查询条件的新数据，这种现象就称为幻读
+
+##### 事务隔离级别
+
+- 读未提交(Read  Uncommitted)： 最低的隔离级别,允许读取尚未提交的数据变更;可能会导致脏读、幻读、不可重复对
+- 读提交(Read  Committed)：允许并发事务读取已经提交的数据，可以阻止脏读；但幻读或不可重复读仍有可能发生
+- 可重复读(Repeatable Read)：对同一字段的多次读取结果都是一致的;除非数据是被本身事务自己所修改；可以阻止脏读和不可重复读，但幻读仍有可能发生
+- 序列化(Serializable)：最高的隔离级别,完全服从ACID的隔离级别。所有的事务依次逐个执行，事务之间完全不可能产生干扰。该级别可以防止脏读和不可重复读，及幻读
+
+![image-20220224171152108](imgs/image-20220224171152108.png)
+
+#### 事务回滚
+
+> 解释：事务执行失败时，恢复到出错之前的状态
+>
+> 实现方式：数据库会使用事务日志文件记录对INNODB存储引擎表执行过的SQL操作
+
 #### 事务命令
 
+![image-20220224171306953](imgs/image-20220224171306953.png)
+
+```mysql
+# 1. tty1终端
+mysql> SHOW VARIABLES LIKE "%autocommit%";
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| autocommit    | ON    |
++---------------+-------+
+1 row in set (0.01 sec)
+
+mysql> set autocommit=0;
+mysql> SHOW VARIABLES LIKE "%autocommit%";
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| autocommit    | OFF   |
++---------------+-------+
+1 row in set (0.00 sec)
+mysql> CREATE TABLE tarena.t33(id int)ENGINE=INNODB;
+mysql> INSERT INTO tarena.t33 VALUES(111);
+mysql> SELECT * FROM tarena.t33;
++------+
+| id   |
++------+
+|  111 |
++------+
+
+# 2. tty2终端
+mysql> SELECT * FROM tarena.t33;
+Empty set (0.00 sec)
+
+# 3. tty1终端
+mysql> COMMIT;
+
+# 4. tty2终端
+mysql> SELECT * FROM tarena.t33;
++------+
+| id   |
++------+
+|  111 |
++------+
+
+# 5. tty2终端
+mysql> SELECT @@tx_isolation;
++-----------------+
+| @@tx_isolation  |
++-----------------+
+| REPEATABLE-READ |
++-----------------+
+
+mysql> SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SELECT @@tx_isolation;
++------------------+
+| @@tx_isolation   |
++------------------+
+| READ-UNCOMMITTED |
++------------------+
+1 row in set (0.00 sec)
+
+# 6. tty1终端-插入数据，但未commit提交
+mysql> INSERT INTO tarena.t33 VALUES(222);
+
+# 7. tty2终端-读到了脏数据
+mysql> SELECT * FROM tarena.t33;
++------+
+| id   |
++------+
+|  111 |
+|  222 |
++------+
+
+# 8. tty1终端-rollback
+mysql> rollback;
+
+# 9. tty2终端
+mysql> SELECT * FROM tarena.t33;
++------+
+| id   |
++------+
+|  111 |
++------+
+1 row in set (0.00 sec)
+
+```
+
+####   总结：
+
+> INNODB适合写访问多的表，好处是并发访问量大。如果表要建立外键必须使用INNODB
+>
+> MyISAM适合读访问多的表，好处是节省系统的资源(主要是节省CPU的使用时间)
+
+## NoSQL
+
+### 数据库类型
+
+- RDBMS
+
+  > Relational Database Management System-关系型数据库管理系统
+  >
+  > - 按照预先设置的组织结构，将数据存储在物理介质上
+  > - 数据之间可以做关联操作
+  >
+  > ![image-20220224185322896](imgs/image-20220224185322896.png)
+
+- NoSQL
+
+  > Not Only SQL
+  >
+  > - 泛指非关系型数据库
+  >
+  > - 不需要预先定义数据存储结构
+  >
+  > - 每条记录可以有不同的数据类型和字段个数据
+  >
+  >   ![image-20220224185601357](imgs/image-20220224185601357.png)
+
+### Redis
+
+> **Remote** **Dictionary**  **Server**（远程字典服务器）
+>
+> 是一款高性能的（**Key**/**Values**）分布式内存数据库
+>
+> 支持数据持久化（定期把内存里数据存储到硬盘）
+>
+> 支持多种数据类型：字符、列表、散列、集合
+>
+> 支持 master-salve 模式数据备份
+
+#### 部署Redis服务
+
+##### 安装软件
+
+```shell
+[root@db50 ~]# which gcc || yum -y install gcc	# 安装编译工具gcc
+[root@db50 ~]# tar -xf redis-4.0.8.tar.gz
+[root@db50 ~]# cd redis-4.0.8/	# 进入源码目录
+[root@db50 redis-4.0.8]# make && make install	# 编译，安装
+```
+
+
+
+##### 初始配置
+
+![image-20220224193820014](imgs/image-20220224193820014.png)
+
+```shell
+# 初始化配置后 会自动启动redis服务 并设置开机运行
+[root@db50 redis-4.0.8]# ./utils/install_server.sh
+Welcome to the redis service installer
+This script will help you easily set up a running redis server
+
+Please select the redis port for this instance: [6379] 
+Selecting default: 6379
+Please select the redis config file name [/etc/redis/6379.conf] 
+Selected default - /etc/redis/6379.conf
+Please select the redis log file name [/var/log/redis_6379.log] 
+Selected default - /var/log/redis_6379.log
+Please select the data directory for this instance [/var/lib/redis/6379] 
+Selected default - /var/lib/redis/6379
+Please select the redis executable path [/usr/local/bin/redis-server] 
+Selected config:
+Port           : 6379	# 端口号
+Config file    : /etc/redis/6379.conf	# 主配置文件
+Log file       : /var/log/redis_6379.log	# 服务日志文件
+Data dir       : /var/lib/redis/6379	# 数据库目录
+Executable     : /usr/local/bin/redis-server	# 服务启动命令
+Cli Executable : /usr/local/bin/redis-cli	# 连接服务命令
+Is this ok? Then press ENTER to go on or Ctrl-C to abort.
+Copied /tmp/6379.conf => /etc/init.d/redis_6379
+Installing service...
+Successfully added to chkconfig!
+Successfully added to runlevels 345!
+Starting Redis server...
+Installation successful!
+```
+
+
+
+##### 管理服务
+
+```shell
+]# /etc/init.d/redis_6379 stop	# 停止服务
+]# /etc/init.d/redis_6379 start	# 启动服务
+]# ps -C redis-server			# 查看进程
+  PID TTY          TIME CMD
+  692 ?        00:00:00 redis-server
+]# ss -tunlp | grep :6379		# 查看端口
+tcp    LISTEN     0      128    127.0.0.1:6379                  *:*                   users:(("redis-server",pid=692,fd=6))
+
+```
+
+
+
+##### 连接服务
+
+```shell
+# 说明：默认只能在本机连接redis服务 (只能自己访问自己)
+]# redis-cli 
+127.0.0.1:6379> ping				#测试连接是否正常
+PONG
+127.0.0.1:6379> set school oxford	#存储数据  set  变量名  值
+OK
+127.0.0.1:6379> keys *				#查看所有变量名
+1) "school"
+127.0.0.1:6379> get school			#查看变量的值  get  变量名
+"oxford"
+127.0.0.1:6379> exit				#断开连接
+```
+
+
+
+##### 常用命令
+
+![image-20220224193458476](imgs/image-20220224193458476.png)
+
+![image-20220224193514295](imgs/image-20220224193514295.png)
+
+```mysql
+# 1. 存储多个key值，获取key值
+192.168.4.50:6350> mset name plj age 80 classs nsd2110
+OK
+192.168.4.50:6350> keys *
+1) "age"
+2) "school"
+3) "classs"
+4) "name"
+192.168.4.50:6350> mget name age class
+1) "plj"
+2) "80"
+3) (nil)
+192.168.4.50:6350> get classs
+"nsd2110"
+
+# 2. keys 使用统配符查看变量
+	* 匹配所有变量名
+	? 一个字符
+192.168.4.50:6350> keys *
+1) "age"
+2) "school"
+3) "classs"
+4) "name"
+192.168.4.50:6350> keys ???
+1) "age"
+192.168.4.50:6350> keys a*
+1) "age"
+192.168.4.50:6350> keys gender
+(empty list or set)	说明变量不存在
+192.168.4.50:6350> keys name
+1) "name"
+
+# 3. select 切换库 默认库编号 0-15
+192.168.4.50:6350> select 1
+OK
+192.168.4.50:6350[1]> select 0
+OK
+192.168.4.50:6350> select 16
+(error) ERR DB index is out of range
+192.168.4.50:6350> keys *
+1) "age"
+2) "school"
+3) "classs"
+4) "name"
+192.168.4.50:6350> select 1
+OK
+192.168.4.50:6350[1]> keys *
+(empty list or set)	切换库后之前设置的key无法被查询到
+
+# 4. move 命令 移动变量到其他库里
+192.168.4.50:6350[1]> select 0
+OK
+192.168.4.50:6350> move age 1
+(integer) 1
+192.168.4.50:6350> keys *
+1) "school"
+2) "classs"
+3) "name"
+192.168.4.50:6350> select 1
+OK
+192.168.4.50:6350[1]> keys *
+1) "age"
+
+# 5. exists 检查变量是否存储  返回值1  变量存储 返回值是0 变量不存在
+192.168.4.50:6350[1]> select 0
+OK
+192.168.4.50:6350> exists name
+(integer) 1
+192.168.4.50:6350> get name
+"plj"
+192.168.4.50:6350> set name bob
+OK
+192.168.4.50:6350> get name
+"bob"
+192.168.4.50:6350> exists class
+(integer) 0
+
+# 6. EXPIRE 命令设置变量的过期时间 不设置变量永不过期
+   ttl   检查变量可以在内存里存多久
+192.168.4.50:6350> set sex girl
+OK
+192.168.4.50:6350> ttl sex
+(integer) -1	# 表示永不过期
+192.168.4.50:6350> expire sex 15	# 设置过期时间15 秒
+(integer) 1
+192.168.4.50:6350> keys sex
+1) "sex"
+192.168.4.50:6350> ttl sex
+(integer) 10	# 还剩下10秒时间过期
+192.168.4.50:6350> ttl sex
+(integer) 1		# 还剩下1秒时间过期
+192.168.4.50:6350> ttl sex
+(integer) -2	# 表示已经过期被删除
+192.168.4.50:6350> keys sex
+(empty list or set)
+
+# 7. type 命令检查变量存储数据的类型
+   使用set  mset命令存储的数据都字符类型
+192.168.4.50:6350> set x 99
+OK
+192.168.4.50:6350> mset y 108
+OK
+192.168.4.50:6350> type x
+string
+192.168.4.50:6350> type y
+string
+192.168.4.50:6350> LPUSH tea nb wk zzg plj lx
+(integer) 5
+192.168.4.50:6350> keys *
+1) "tea"
+2) "name"
+3) "classs"
+4) "school"
+5) "x"
+6) "y"
+192.168.4.50:6350> get tea	# get命令只能获取字符类型变量值
+(error) WRONGTYPE Operation against a key holding the wrong kind of value
+192.168.4.50:6350> type tea	# 查看变量类型 list 列表类型的数据
+list
+(error) ERR wrong number of arguments for 'lrange' command
+192.168.4.50:6350> lrange tea 0 -1
+1) "lx"
+2) "plj"
+3) "zzg"
+4) "wk"
+5) "nb"
+
+# 8. del 删除内存里的变量
+192.168.4.50:6350> keys *
+1) "tea"
+2) "name"
+3) "classs"
+4) "school"
+5) "x"
+6) "y"
+192.168.4.50:6350> del tea y school
+(integer) 3
+192.168.4.50:6350> keys *
+1) "name"
+2) "classs"
+3) "x"
+
+# 9. flushdb  删除当前所在库的所有数据
+192.168.4.50:6350> flushdb
+OK
+192.168.4.50:6350> keys *
+(empty list or set)
+192.168.4.50:6350> select 1
+OK
+192.168.4.50:6350[1]> keys *
+1) "age"
+
+# 10. flushall 删除内存里的所有内存里所有数据 （慎用）
+# 11. save 把内存了数据马上存储到硬盘（存储到数据库目录下的文件 ）
+192.168.4.50:6350[1]> mset x 1 y 2 z 3 c 4
+OK
+192.168.4.50:6350[1]> keys *
+1) "c"
+2) "z"
+3) "age"
+4) "x"
+5) "y"
+192.168.4.50:6350[1]> save
+OK
+192.168.4.50:6350[1]> exit
+[root@db50 redis-4.0.8]# ls /var/lib/redis/6379/
+dump.rdb
+
+# 12. shutdown  停止redis  和 执行脚本停止服务效果一样
+```
+
+
+
+
+
+
+
+#### 配置文件解析
+
+##### 配置分类
+
+![image-20220224215609695](imgs/image-20220224215609695.png)
+
+```shell
+
+
+```
+
+
+
+##### 数据单位
+
+```
+# Note on units: when memory size is needed, it is possible to specify
+# it in the usual form of 1k 5GB 4M and so forth:
+#
+# 1k => 1000 bytes
+# 1kb => 1024 bytes
+# 1m => 1000000 bytes
+# 1mb => 1024*1024 bytes
+# 1g => 1000000000 bytes
+# 1gb => 1024*1024*1024 bytes
+#
+# units are case insensitive so 1GB 1Gb 1gB are all the same.
+```
+
+
+
+##### 常用配置
+
+```shell
+# 修改配置后，重启服务才会生效
+port 6379			//端口
+bind 127.0.0.1		//IP地址
+daemonize yes		//守护进程的方式运行
+database 16			//数据库个数
+logfile /var/log/redis_6379.log	//日志文件
+maxclients 10000	//并发连接数量
+dir /var/lib/redis/6379	//数据库目录
+```
+
+
+
+##### 内存管理
+
+- 内存清除策略
+
+  > 内存空间不足时，删除已存储数据的方式
+  >
+  > ![image-20220224220745372](imgs/image-20220224220745372.png)
+
+  > LRU means Least Recently Used
+  >
+  > LFU means Least Frequently Used
+
+- 配置字段
+
+  ```
+  maxmemory <bytes>				//最大内存
+  maxmemory-policy noeviction		//定义使用策略
+  maxmemory-samples 5				//选取key模板的个数(针对LRU和TTL策略)
+  ```
+
   
+
+##### 设置密码
+
+```shell
+# 1. 修改redis服务使用的ip地址、端口号 、连接密码
+]# /etc/init.d/redis_6379 stop
+]# vim /etc/redis/6379.conf
+bind 192.168.4.50
+port 6350
+requirepass 123456
+]# /etc/init.d/redis_6379 start
+]# ss -tunlp | grep 6350
+tcp    LISTEN     0      128    192.168.4.50:6350                  *:*                   users:(("redis-server",pid=18605,fd=6))
+
+# 2. 默认连接127.0.0.1 地址 和端口 6379  但当前Redis服务的地址和端口都改变了
+]# redis-cli 
+Could not connect to Redis at 127.0.0.1:6379: Connection refused
+Could not connect to Redis at 127.0.0.1:6379: Connection refused
+
+# 3. -h  指定ip地址  -p(小写p) 端口号
+]# redis-cli -h 192.168.4.50 -p 6350
+192.168.4.50:6350> ping
+(error) NOAUTH Authentication required.	# 没有输入报错
+192.168.4.50:6350> auth 123456	# 输入密码
+OK
+192.168.4.50:6350> ping	# 可以正常访问
+PONG
+192.168.4.50:6350> 
+
+# 4. 连接时-a直接指定密码
+]# redis-cli -h 192.168.4.50 -p 6350 -a 123456
+192.168.4.50:6350> keys *
+1) "school"
+192.168.4.50:6350> get school
+"oxford"
+192.168.4.50:6350> 
+
+# 5. 注意：修改服务使用的ip地址、端口号 、连接密码  三项中的任意一项。都无法再使用脚本停止服务(可以启动服务)，只能通过以下两种办法
+## 使用命令停止服务
+]# redis-cli -h 192.168.4.50 -p 6350 -a 123456 shutdown
+## 修改脚本
+]# vim +43 /etc/init.d/redis_6379
+$CLIEXEC -h 192.168.4.50 -p 6350 -a 123456 shutdown
+```
+
+
+
+### 部署LNP+Redis
+
+#### 部署LNP
+
+1. 安装nginx和php-fpm
+
+```
+]# yum -y install gcc make pcre-devel openssl-devel
+]# ./configure
+]# make && make install
+]# yum -y install php php-fpm
+```
+
+2. 
+
+```
+]# vim /usr/local/nginx/conf/nginx.conf
+ location ~ \.php$ {
+            root           html;
+            fastcgi_pass   127.0.0.1:9000;
+            fastcgi_index  index.php;
+        #    fastcgi_param  SCRIPT_FILENAME  /scripts$fastcgi_script_name;
+            include        fastcgi.conf;
+        }
+        
+]# /usr/local/nginx/sbin/nginx -t
+nginx: the configuration file /usr/local/nginx/conf/nginx.conf syntax is ok
+nginx: configuration file /usr/local/nginx/conf/nginx.conf test is successful
+
+]# /usr/local/nginx/sbin/nginx
+[root@db51 nginx-1.12.2]# netstat -antpu | grep :80
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      18865/nginx: master 
+
+```
+
+```
+]# systemctl start php-fpm
+[root@db51 nginx-1.12.2]# netstat -antpu | grep :9000
+tcp        0      0 127.0.0.1:9000          0.0.0.0:*               LISTEN      19634/php-fpm: mast 
+
+```
+
+```
+]# vim /usr/local/nginx/html/test.php
+<?php
+        echo "hello world!!!";
+?>
+]# curl http://localhost/test.php
+hello world!!!
+```
+
+
+
+#### 配置php支持Redis
+
+```
+]# yum -y install php php-devel
+]# rpm -q autoconf automake
+autoconf-2.69-11.el7.noarch
+automake-1.13.4-3.el7.noarch
+]# tar -xf php-redis-2.2.4.tar.gz
+]# cd phpredis-2.2.4/
+]# phpize
+Configuring for:
+PHP Api Version:         20100412
+Zend Module Api No:      20100525
+Zend Extension Api No:   220100525
+```
 
