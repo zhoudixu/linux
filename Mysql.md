@@ -6100,7 +6100,17 @@ version.txt     //mycat软件 说明文件
 
   ![image-20220223094536622](imgs/image-20220223094536622.png)
 
-  **缺点：切换过程中可能会存在数据丢失**
+  **缺点：**
+
+  **1. 必须要有vip地址。**
+
+  **2.宕机的主服务器需要手动添加到集群里,还需要手动同步宕机期间的数据。**
+
+  **3.管理服务发现主服务器宕机后，会调用故障切换脚本。把vip地址部署在新的主数据库服务器上。管理服务会自动停止，需要手动启动管理服务器，才能监视新的主数据服务器**
+
+  **4.切换过程中可能会存在数据丢失**
+
+  
 
 - 组成
 
@@ -6533,15 +6543,337 @@ version.txt     //mycat软件 说明文件
   
   ```
 
+
+
+
+## PXC集群
+
+> Percona XtraDB Cluster
+
+### PXC概述
+
+#### PXC介绍
+
+![image-20220224093130826](imgs/image-20220224093130826.png)
+
+#### PXC特点
+
+- 数据强一致性、无同步延迟
+- 没有主从切换操作，无需使用虚拟IP
+- 支持InnoDB存储引擎
+- 多线程复制
+- 部署使用简单
+- 支持节点自动加入，无需手动拷贝数据
+
+#### PXC端口
+
+| 端口 | 说明           |
+| ---- | -------------- |
+| 3306 | 数据库服务端口 |
+| 4567 | 集群通信端口   |
+| 4444 | SST 端口       |
+| 4568 | IST 端口       |
+
+SST	State Snapshot Transfer 全量同步
+
+IST	Incremental State Transfer 增量同步
+
+### 部署PXC
+
+> 测试用例涉及架构：
+>
+> ![image-20220224093445963](imgs/image-20220224093445963.png)
+
+#### 安装软件
+
+- 主要软件介绍
+
+| 软件                                                         | 作用         |
+| ------------------------------------------------------------ | ------------ |
+| percona-xtrabackup-24-2.4.13-1.el7.x86_64.rpm                | 在线热备程序 |
+| qpress-1.1-14.11.x86_64.rpm                                  | 递归压缩程序 |
+| Percona-XtraDB-Cluster-server-57-5.7.25-31.35.1.el7.x86_64.rpm | 集群服务程序 |
+
+- 依赖包和软件安装顺序
+
+  ```shell
+  [root@pxc71 pxc]# cd pxc/
+  [root@pxc71 pxc]# yum -y install libev-4.15-1.el6.rf.x86_64.rpm	//安装依赖
+  [root@pxc71 pxc]# yum -y install percona-xtrabackup-24-2.4.13-1.el7.x86_64.rpm
+  [root@pxc71 pxc]# yum -y install qpress-1.1-14.11.x86_64.rpm
+  [root@pxc71 pxc]# tar -xf Percona-XtraDB-Cluster-5.7.25-31.35-r463-el7-x86_64-bundle.tar
+  [root@pxc71 pxc]# yum -y install Percona-XtraDB*.rpm
+  
+  ```
+
   
 
-3台vm7虚拟机，不需要sql  
+#### 配置服务
+
+- 配置文件所有在目录
+
+  ```shell
+  [root@pxc71 pxc]# ls /etc/percona-xtradb-cluster.conf.d
+  mysqld.cnf  mysqld_safe.cnf  wsrep.cnf
+  ```
+
+  - mysqld.cnf	数据库服务运行参数配置文件
+
+    ```shell
+    # 指定集群中主机的server_id（集群中的每台数据库服务器都要进行配置）
+    [root@pxc71 percona-xtradb-cluster.conf.d]# vim mysqld.cnf
+    [mysqld]
+    server-id=71	# server-id 不可以重复
+    datadir=/var/lib/mysql	# 数据库目录
+    socket=/var/lib/mysql/mysql.sock	# socket文件
+    log-error=/var/log/mysqld.log	# 日志文件
+    pid-file=/var/run/mysqld/mysqld.pid	# pid文件
+    log-bin	# 启用binlog日志
+    log_slave_updates	# 启用链式复制
+    expire_logs_days=7	# 日志文件保留天数
+    ```
+
+    
+
+  - mysqld_safe.cnf    Percona Server 5.7配置文件
+
+    ```shell
+    # 重要配置项说明(集群中的数据库服务器可以使用默认配置即可)
+    [root@pxc71 percona-xtradb-cluster.conf.d]# vim mysqld_safe.cnf
+    [mysqld_safe]
+    pid-file = /var/run/mysqld/mysqld.pid	# pid文件位置及名称
+    socket   = /var/lib/mysql/mysql.sock	# socket文件位置及名称
+    ```
+
+    
+
+  - wsrep.cnf       PXC集群配置文件
+
+    ```shell
+    # 集群中的每台数据库服务器都要进行配置
+    [root@pxc71 percona-xtradb-cluster.conf.d]# vim wsrep.cnf
+    ...
+    wsrep_cluster_address=gcomm://192.168.4.71,192.168.4.72,192.168.4.73	# 集群成员列表
+    wsrep_node_address=192.168.4.71	# 本机IP地址
+    wsrep_cluster_name=pxc-cluster	#集群名称，集群中的主机必须相同
+    wsrep_node_name=pxc71	# 本机主机名
+    wsrep_sst_auth="sstuser:123qqq...A"	# SST数据同步授权用户,集群中的主机必须相同
+    ```
+
+    
+
+#### 启动服务
+
+> **所有主机的SELinux和防火墙都需要关闭**
+
+1. 在任意1台服务器上执行初始化集群操作（仅需要执行一遍）
+
+   ```
+   [root@pxc71 ~]# systemctl start mysql@bootstrap.service
+   ```
+
+   
+
+2. 查看数据数据库文件列表 有文件说明成功
+
+   ```
+   [root@pxc71 ~]# ls /var/lib/mysql
+   auto.cnf         galera.cache    ib_logfile0      mysql.sock          pxc71-bin.000001  sys
+   ca-key.pem       grastate.dat    ib_logfile1      mysql.sock.lock     pxc71-bin.000002  xb_doublewrite
+   ca.pem           gvwstate.dat    ibtmp1           performance_schema  pxc71-bin.index
+   client-cert.pem  ib_buffer_pool  mysql            private_key.pem     server-cert.pem
+   client-key.pem   ibdata1         mysqld_safe.pid  public_key.pem      server-key.pem
+   [root@pxc71 ~]# ss -tunlp | grep 3306
+   tcp    LISTEN     0      80       :::3306                 :::*                   users:(("mysqld",pid=20777,fd=32))
+   
+   ```
+
+   
+
+3. 登录数据库修改密码和授权SST同步的用户
+
+   ```shell
+   [root@pxc71 ~]# grep -i password /var/log/mysqld.log
+   2022-02-24T02:37:37.262493Z 1 [Note] A temporary password is generated for root@localhost: s)a;Bq6rX_Gj
+   [root@pxc71 ~]# mysql -uroot -p's)a;Bq6rX_Gj'
+   mysql> ALTER USER root@"localhost" IDENTIFIED BY "123456";
+   mysql> GRANT ALL ON *.* TO sstuser@"%" IDENTIFIED BY "123qqq...A";
+   
+   # 必须添加sst_auth对应的用户，否则之后集群中的其余主机是无法正常启动的
+   ```
+
+   
+
+4. 查看数据库服务端口和集群端口
+
+   ```shell
+   [root@pxc71 ~]# ss -tunlp | grep mysql
+   tcp    LISTEN     0      128       *:4567                  *:*                   users:(("mysqld",pid=20777,fd=11))
+   tcp    LISTEN     0      80       :::3306                 :::*                   users:(("mysqld",pid=20777,fd=32))
+   
+   ```
+
+   
+
+5. 启动其它设备数据库服务，启动服务后会自动同步71主机的数据
+
+   ```shell
+   [root@pxc72 ~]# ls /var/lib/mysql
+   [root@pxc72 ~]# systemctl start mysql
+   # PXC集群中的mysql服务名称就是mysql不是mysqld
+   [root@pxc72 ~]# ss -tunlp | grep mysql
+   tcp    LISTEN     0      128       *:4567                  *:*                   users:(("mysqld",pid=507,fd=11))
+   tcp    LISTEN     0      80       :::3306                 :::*                   users:(("mysqld",pid=507,fd=34))
+   
+   [root@pxc72 ~]# mysql -uroot -p123456
+   mysql> SELECT user,host FROM mysql.user;
+   +---------------+-----------+
+   | user          | host      |
+   +---------------+-----------+
+   | sstuser       | %         |
+   | mysql.session | localhost |
+   | mysql.sys     | localhost |
+   | root          | localhost |
+   +---------------+-----------+
+   ```
+
+   
+
+6. 反帝反第三
+
+#### 测试配置
+
+- 查看集群信息(可在任意一台数据库服务器执行)
+
+  ```
+  [root@pxc71 ~]# mysql -uroot -p123456 -e 'SHOW STATUS LIKE "%wsrep%"'
+  +----------------------------------+-------------------------------------------------------+
+  | Variable_name                    | Value                                                 |
+  +----------------------------------+-------------------------------------------------------+
+  | wsrep_incoming_addresses         | 192.168.4.72:3306,192.168.4.71:3306,192.168.4.73:3306 |
+  | wsrep_cluster_size               | 3                                                     |
+  | wsrep_cluster_status             | Primary                                               |
+  | wsrep_connected                  | ON                                                    |
+  
+  ```
 
   
 
-  
+- 测试集群功能
 
+  > **！！！pxc集群中的表必须要有主键 自增长可选（自增长的步长随机取值，范围 <= 集群机器数量 +1）！！！**
+
+  ```shell
+  1. 在任意服务器添加客户端连接服务使用的用户以及建库和表
+  [root@pxc73 ~]# mysql -uroot -p123456
+  mysql> CREATE DATABASE db1;
+  mysql> CREATE TABLE db1.user(id int primary key auto_increment, name char(10),age char(10));
+  mysql> GRANT ALL ON db1.* TO tim@"%" IDENTIFIED BY "123qqq...A";
   
+  2. 通过客户端连接集群中的任意主机存取数据
+  [root@db50 ~]# mysql -h192.168.4.71 -utim -p123qqq...A
+  mysql> DESC db1.user;
+  +-------+----------+------+-----+---------+----------------+
+  | Field | Type     | Null | Key | Default | Extra          |
+  +-------+----------+------+-----+---------+----------------+
+  | id    | int(11)  | NO   | PRI | NULL    | auto_increment |
+  | name  | char(10) | YES  |     | NULL    |                |
+  | age   | char(10) | YES  |     | NULL    |                |
+  +-------+----------+------+-----+---------+----------------+
+  mysql> INSERT INTO db1.user(name,age) VALUES("tim","18"),("bob","20"),("lili","99");
+  mysql> SELECT * FROM db1.user;
+  +----+------+------+
+  | id | name | age  |
+  +----+------+------+
+  |  2 | tim  | 18   |
+  |  5 | bob  | 20   |
+  |  8 | lili | 99   |
+  +----+------+------+
+  
+  3. 通过客户端连接集群中的其它主机检查数据
+  [root@db50 ~]# mysql -h192.168.4.72 -utim -p123qqq...A  -e 'SELECT * FROM db1.user'
+  +----+------+------+
+  | id | name | age  |
+  +----+------+------+
+  |  2 | tim  | 18   |
+  |  5 | bob  | 20   |
+  |  8 | lili | 99   |
+  +----+------+------+
+  
+  4. 集群中只要有1台数据库服务器是正常的，就能提供存取功能
+  [root@pxc71 ~]# systemctl stop mysql@bootstrap.service
+  
+  5. 在集群中的任意主机查看集群状态
+  [root@pxc72 ~]# mysql -uroot -p123456 -e 'SHOW STATUS LIKE "%wsrep%"' | grep incoming
+  wsrep_incoming_addresses        192.168.4.72:3306,192.168.4.73:3306
+  
+  6. 客户端连接在线的集群主机进行数据操作
+  [root@db50 ~]# mysql -h192.168.4.72 -utim -p123qqq...A
+  mysql> INSERT INTO db1.user(name,age) VALUES("lucy","100"),("lauren","2"),("peter","28");
+  mysql> SELECT * FROM db1.user;
+  +----+--------+------+
+  | id | name   | age  |
+  +----+--------+------+
+  |  2 | tim    | 18   |
+  |  5 | bob    | 20   |
+  |  8 | lili   | 99   |
+  | 10 | lucy   | 100  |
+  | 12 | lauren | 2    |
+  | 14 | peter  | 28   |
+  +----+--------+------+
+  
+  7. 宕机的服务器启动后会自动加入集群并同步宕机期间的数据
+  [root@pxc71 ~]# systemctl start mysql
+  
+  8. 再次检查集群状态和检查数据是否同步
+  [root@db50 ~]# mysql -h192.168.4.71 -utim -p123qqq...A -e 'SHOW STATUS LIKE "%wsrep%"' | grep incoming
+  wsrep_incoming_addresses        192.168.4.72:3306,192.168.4.71:3306,192.168.4.73:3306
+  [root@db50 ~]# mysql -h192.168.4.71 -utim -p123qqq...A
+  mysql> SELECT * FROM db1.user;
+  +----+--------+------+
+  | id | name   | age  |
+  +----+--------+------+
+  |  2 | tim    | 18   |
+  |  5 | bob    | 20   |
+  |  8 | lili   | 99   |
+  | 10 | lucy   | 100  |
+  | 12 | lauren | 2    |
+  | 14 | peter  | 28   |
+  +----+--------+------+
+  # 这里可以看到自增长的id值是变化的
+  ```
+
+
+
+## Mysql存储引擎
+
+### 概述
+
+#### Mysql体系结构
+
+#### Mysql工作过程
+
+#### 存储引擎介绍
+
+### 存储引擎管理
+
+#### 查看存储引擎
+
+#### 修改存储引擎
+
+### 常用存储引擎
+
+#### MYISAM
+
+#### INNODB
+
+#### 锁机制
+
+#### 事务介绍
+
+#### 事务特性
+
+#### 事务命令
 
   
 
