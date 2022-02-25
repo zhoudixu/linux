@@ -6739,7 +6739,6 @@ IST	Incremental State Transfer 增量同步
 
    
 
-6. 反帝反第三
 
 #### 测试配置
 
@@ -7513,20 +7512,13 @@ dump.rdb
 
 
 
-
-
-
-
 #### 配置文件解析
 
 ##### 配置分类
 
 ![image-20220224215609695](imgs/image-20220224215609695.png)
 
-```shell
 
-
-```
 
 
 
@@ -7580,7 +7572,7 @@ dir /var/lib/redis/6379	//数据库目录
   ```
   maxmemory <bytes>				//最大内存
   maxmemory-policy noeviction		//定义使用策略
-  maxmemory-samples 5				//选取key模板的个数(针对LRU和TTL策略)
+  maxmemory-samples 5				//选取key变量的个数(针对LRU和LFU,TTL策略)
   ```
 
   
@@ -7633,6 +7625,8 @@ $CLIEXEC -h 192.168.4.50 -p 6350 -a 123456 shutdown
 
 ### 部署LNP+Redis
 
+> 生产环境下会被网站的热点数据存放在内存存储服务器里，这样的好处是可以加快存取数据的速度，能够实现网站访问加速。通常网站会把 频繁被访问的数据（热点数据）、数据小的数据 、可再生的数据 存储在内存存储服务器里
+
 #### 部署LNP
 
 1. 安装nginx和php-fpm
@@ -7644,7 +7638,7 @@ $CLIEXEC -h 192.168.4.50 -p 6350 -a 123456 shutdown
 ]# yum -y install php php-fpm
 ```
 
-2. 
+2. 修改nginx配置
 
 ```
 ]# vim /usr/local/nginx/conf/nginx.conf
@@ -7686,17 +7680,68 @@ hello world!!!
 
 #### 配置php支持Redis
 
-```
+```shell
 ]# yum -y install php php-devel
-]# rpm -q autoconf automake
-autoconf-2.69-11.el7.noarch
-automake-1.13.4-3.el7.noarch
+]# php -m | grep redis	# 检查php支持的模块
+
 ]# tar -xf php-redis-2.2.4.tar.gz
 ]# cd phpredis-2.2.4/
-]# phpize
+]# phpize	# 创建配置命令configure和生成PHP配置信息文件/usr/bin/php-config
 Configuring for:
 PHP Api Version:         20100412
 Zend Module Api No:      20100525
 Zend Extension Api No:   220100525
+]# ./configure  --with-php-config=/usr/bin/php-config  #配置
+]# make
+]# make install
+...
+Installing shared extensions:     /usr/lib64/php/modules/	#提示模块的安装目录
+]# ls /usr/lib64/php/modules/	#查看目录下的模块列表有redis.so模块文件即可
+curl.so  fileinfo.so  json.so  phar.so  redis.so  zip.so
+
+]# vim /etc/php.ini
+ 728 extension_dir = "/usr/lib64/php/modules/"	模块文件所在的目录
+ 730 extension = "redis.so"	模块名
+]# systemctl restart php-fpm	#查看支持的模块
+]# php -m | grep redis
+redis
+
 ```
+
+```php
+]# cp linkredis.php /usr/local/nginx/html/test2.php
+]# vim /usr/local/nginx/html/test2.php
+<?php
+$redis = new redis();					# 定义连接命令
+$redis->connect('192.168.4.50',6350);	# 指定服务器的ip和端口
+$redis->auth("123456");					# 指定连接密码
+$redis->set('linux','redhat');			# 存储数据
+echo $redis->get('linux');
+$redis->set('linux','xixi');
+echo $redis->get('linux');
+$redis->set('linux','haha');
+echo $redis->get('linux');
+?>
+
+]# curl http://192.168.4.51/test2.php
+redhatxixihaha
+```
+
+### Redis集群
+
+#### 创建集群
+
+1. 部署管理主机
+2. redis-trib.rb脚本
+3. 创建集群
+4. 查看集群信息
+5. 访问集群
+
+#### 管理集群
+
+##### 测试集群功能
+
+##### 添加服务器
+
+##### 移除服务器
 

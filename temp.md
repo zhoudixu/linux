@@ -1,7 +1,6 @@
-hostnamectl set-hostname develop
-nmcli connection modify eth1 ipv4.method manual ipv4.addresses 192.168.4.10/24
+hostnamectl set-hostname redis57
+nmcli connection modify eth0 ipv4.method manual ipv4.addresses 192.168.4.57/24 connection.autoconnect yes
 
-nmcli connection down eth0
 nmcli connection up eth0
 
 9. 启动nginx程序时，其命令选项( )可用于查看版本信息？
