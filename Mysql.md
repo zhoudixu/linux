@@ -8141,6 +8141,7 @@ Starting Redis server...
      192.168.4.53:6379 (b1eeee18...) -> 2 keys | 5461 slots | 1 slaves.
      192.168.4.52:6379 (e4c1522e...) -> 1 keys | 5462 slots | 1 slaves.
      192.168.4.58:6379 (3a9c7f67...) -> 0 keys | 0 slots | 0 slaves.
+     # master角色的服务器没有hast slots得不到存储数据机会
      
      ```
 
@@ -8149,19 +8150,501 @@ Starting Redis server...
   3. 分配hash槽(slots)
 
      > **]# redis-trib.rb   reshard  集群中已有主机的ip:端口**
+  >
+     > **槽的重新分配，那么槽数值对应的数据也会进行迁移**
 
      ![image-20220225174823967](imgs/image-20220225174823967.png)
-
+     
+     ```shell
+  [root@redis57 ~]# redis-trib.rb reshard 192.168.4.52:6379
+     How many slots do you want to move (from 1 to 16384)? 4096
+     What is the receiving node ID? 3a9c7f67d510c3a31d237248e461832b590b7437
+     Source node #1:all
+     
+     # 查看集群信息 （查看到多新的主服务器且有hast slots 为成功）
+     [root@redis57 ~]# redis-trib.rb info 192.168.4.51:6379
+     192.168.4.55:6379 (1e04d0a6...) -> 1 keys | 4096 slots | 1 slaves.
+     192.168.4.58:6379 (3a9c7f67...) -> 4 keys | 4096 slots | 0 slaves.
+     192.168.4.53:6379 (b1eeee18...) -> 1 keys | 4096 slots | 1 slaves.
+     192.168.4.52:6379 (e4c1522e...) -> 0 keys | 4096 slots | 1 slaves.
+     [OK] 6 keys in 4 masters.
+     0.00 keys per slot on average.
+     
+     #具体查看host58 占用4096个槽的范围
+     [root@redis57 ~]# redis-trib.rb check 192.168.4.51:6379
+     M: 3a9c7f67d510c3a31d237248e461832b590b7437 192.168.4.58:6379
+        slots:0-1364,5461-6826,10923-12287 (4096 slots) master
+        0 additional replica(s)
      ```
      
-     ```
-
      
 
 - 添加slave角色主机到集群
 
+  > 从角色服务器的数据是master服务器同步过来的数据。所以slave角色的服务器不需要分配hash slots。只要把主机添加到集群了做slave服务器就可以了。
+  >
+  > **]# redis-trib.rb  add-node   --slave  [ --master-id id值 ] 新主机Ip:端口  集群中已有主机的ip:端口**
+  >
+  > 如果不指定主节点的id的话，会把新节点**随机**添加为**从节点最少**的主库的从
+
+  ```shell
+  [root@redis57 ~]# redis-trib.rb add-node --slave 192.168.4.59:6379 192.168.4.51:6379
+  Automatically selected master 192.168.4.58:6379
+  >>> Send CLUSTER MEET to node 192.168.4.59:6379 to make it join the cluster.
+  
+  [root@redis57 ~]# redis-trib.rb info 192.168.4.51:6379
+  192.168.4.55:6379 (1e04d0a6...) -> 1 keys | 4096 slots | 1 slaves.
+  192.168.4.58:6379 (3a9c7f67...) -> 4 keys | 4096 slots | 1 slaves.
+  192.168.4.53:6379 (b1eeee18...) -> 1 keys | 4096 slots | 1 slaves.
+  192.168.4.52:6379 (e4c1522e...) -> 0 keys | 4096 slots | 1 slaves.
+  
+  ```
+
+  
+
 ##### 移除服务器
 
-- 移除master角色主机
 - 移除slave角色主机到
 
+  > **]# redis-trib.rb del-node  集群中任意主机的Ip:端口  被移除主机的id**
+  >
+  > **slave角色的主机因为没有hash slots 所以直接移除即可**
+  >
+  > **主机被移除集群后redis服务会自动停止**
+
+  ```shell
+  [root@redis57 ~]# redis-trib.rb check  192.168.4.51:6379 | grep 192.168.4.59
+  S: a0723ee71ebf8addcea731704189b0c26148dd50 192.168.4.59:6379
+  
+  [root@redis57 ~]# redis-trib.rb del-node 192.168.4.51:6379 a0723ee71ebf8addcea731704189b0c26148dd50
+  >>> Removing node a0723ee71ebf8addcea731704189b0c26148dd50 from cluster 192.168.4.51:6379
+  >>> Sending CLUSTER FORGET messages to the cluster...
+  >>> SHUTDOWN the node.	# 服务被停止
+  
+  [root@redis57 ~]# redis-trib.rb info  192.168.4.51:6379
+  192.168.4.55:6379 (1e04d0a6...) -> 1 keys | 4096 slots | 1 slaves.
+  192.168.4.58:6379 (3a9c7f67...) -> 4 keys | 4096 slots | 0 slaves.	# 零台从服务器
+  192.168.4.53:6379 (b1eeee18...) -> 1 keys | 4096 slots | 1 slaves.
+  192.168.4.52:6379 (e4c1522e...) -> 0 keys | 4096 slots | 1 slaves.
+  
+  ```
+
+  - 移除master角色主机
+
+    > master角色的服务器会占用hash slots  
+    >
+    > **要先释放hash slots  再执行移除主机的命令**
+
+    ```shell
+    # 查看要移除的master机器id
+    [root@redis57 ~]# redis-trib.rb check 192.168.4.51:6379 | grep 192.168.4.58
+    M: 3a9c7f67d510c3a31d237248e461832b590b7437 192.168.4.58:6379
+    
+    # 未释放slots的时候，移除的master会执行失败
+    [root@redis57 ~]# redis-trib.rb del-node 192.168.4.51:6379 3a9c7f67d510c3a31d237248e461832b590b7437 
+    >>> Removing node 3a9c7f67d510c3a31d237248e461832b590b7437 from cluster 192.168.4.51:6379
+    [ERR] Node 192.168.4.58:6379 is not empty! Reshard data away and try again.
+    
+    # 查看slots数量
+    [root@redis57 ~]# redis-trib.rb info 192.168.4.51:6379 | grep 192.168.4.58
+    192.168.4.58:6379 (3a9c7f67...) -> 4 keys | 4096 slots | 0 slaves.
+    
+    # 释放slots
+    [root@redis57 ~]# redis-trib.rb reshard 192.168.4.51:6379
+    ...
+    How many slots do you want to move (from 1 to 16384)? 4096
+    What is the receiving node ID? e4c1522e98a0996197e601722a91804358d81239
+    Source node #1:3a9c7f67d510c3a31d237248e461832b590b7437
+    Source node #2:done
+    # 这里目前把slots随便给哪个主服务器都可以
+    
+    # 查看集群信息（发现host52 主服务器hash slots变多了 ）
+    [root@redis57 ~]# redis-trib.rb info 192.168.4.51:6379
+    192.168.4.55:6379 (1e04d0a6...) -> 1 keys | 4096 slots | 1 slaves.
+    192.168.4.53:6379 (b1eeee18...) -> 1 keys | 4096 slots | 1 slaves.
+    192.168.4.52:6379 (e4c1522e...) -> 4 keys | 8192 slots | 1 slaves.
+    192.168.4.58:6379 (3a9c7f67...) -> 0 keys | 0 slots | 0 slaves. 一个槽也没有了
+    
+    # 查看要移除的主机id 然后移除主机
+    [root@redis57 ~]# redis-trib.rb check 192.168.4.51:6379 | grep 192.168.4.58
+    M: 3a9c7f67d510c3a31d237248e461832b590b7437 192.168.4.58:6379
+    [root@redis57 ~]# redis-trib.rb del-node 192.168.4.51:6379 3a9c7f67d510c3a31d237248e461832b590b7437
+    >>> Removing node 3a9c7f67d510c3a31d237248e461832b590b7437 from cluster 192.168.4.51:6379
+    >>> Sending CLUSTER FORGET messages to the cluster...
+    >>> SHUTDOWN the node.
+    
+    # 再次查看集群信息
+    [root@redis57 ~]# redis-trib.rb info 192.168.4.51:6379
+    192.168.4.55:6379 (1e04d0a6...) -> 1 keys | 4096 slots | 1 slaves.
+    192.168.4.53:6379 (b1eeee18...) -> 1 keys | 4096 slots | 1 slaves.
+    192.168.4.52:6379 (e4c1522e...) -> 4 keys | 8192 slots | 1 slaves.
+    
+    ```
+
+    
+
+##### 把移除集群的主机再次添加到集群
+
+> 1. 启动redis服务-在Redis服务器本机操作
+> 2. 执行cluster reset-在Redis服务器本机操作
+> 3. 清空内存数据flushall-在Redis服务器本机操作
+> 4. 在管理主机执行添加命令
+
+```shell
+root@redis59 ~]# ss -utlnp | grep redis	#被移出集群的主机redis服务是关闭的
+[root@redis59 ~]# 
+[root@redis59 ~]# /etc/init.d/redis_6379 start	# 启动redis服务
+Starting Redis server...
+[root@redis59 ~]# ss -utlnp | grep redis
+tcp    LISTEN     0      128    192.168.4.59:6379                  *:*                   users:(("redis-server",pid=764,fd=6))
+tcp    LISTEN     0      128    192.168.4.59:16379                 *:*                   users:(("redis-server",pid=764,fd=8))
+[root@redis59 ~]# redis-cli -h 192.168.4.59 -p 6379
+192.168.4.59:6379> cluster info	# 此处可以看依然有集群的信息
+cluster_state:ok
+cluster_slots_assigned:16384
+cluster_slots_ok:16384
+cluster_slots_pfail:0
+cluster_slots_fail:0
+cluster_known_nodes:8
+cluster_size:3
+cluster_current_epoch:9
+cluster_my_epoch:9
+cluster_stats_messages_ping_sent:134
+cluster_stats_messages_sent:134
+cluster_stats_messages_pong_received:134
+cluster_stats_messages_received:134
+192.168.4.59:6379> cluster reset	# 执行cluster reset 
+OK
+192.168.4.59:6379> cluster info
+cluster_state:fail
+cluster_slots_assigned:0
+cluster_slots_ok:0
+cluster_slots_pfail:0
+cluster_slots_fail:0
+cluster_known_nodes:1
+cluster_size:0
+cluster_current_epoch:9
+cluster_my_epoch:0
+cluster_stats_messages_ping_sent:166
+cluster_stats_messages_sent:166
+cluster_stats_messages_pong_received:166
+cluster_stats_messages_received:166
+192.168.4.59:6379> keys *	查看是否存在数据
+(empty list or set)
+
+# 未执行以上操作的时候，主机是无法加入集群的
+[root@redis57 ~]# redis-trib.rb add-node 192.168.4.59:6379 192.168.4.51:6379
+...
+[ERR] Node 192.168.4.59:6379 is not empty. Either the node already knows other nodes (check with CLUSTER NODES) or contains some key in database 0.
+
+# 执行以上操作后，再次添加主机到集群成功
+[root@redis57 ~]# redis-trib.rb add-node 192.168.4.59:6379 192.168.4.51:6379
+...
+>>> Send CLUSTER MEET to node 192.168.4.59:6379 to make it join the cluster.
+[OK] New node added correctly.
+
+```
+
+
+
+##### 平均分配当前所有主服务器的hash slots
+
+```shell
+[root@redis57 ~]# redis-trib.rb info 192.168.4.51:6379
+192.168.4.55:6379 (1e04d0a6...) -> 1 keys | 4096 slots | 1 slaves.
+192.168.4.53:6379 (b1eeee18...) -> 1 keys | 4096 slots | 1 slaves.
+192.168.4.52:6379 (e4c1522e...) -> 4 keys | 8192 slots | 1 slaves.
+192.168.4.59:6379 (a0723ee7...) -> 0 keys | 0 slots | 0 slaves.
+
+[root@redis57 ~]# redis-trib.rb rebalance 192.168.4.51:6379
+>>> Performing Cluster Check (using node 192.168.4.51:6379)
+...
+
+[root@redis57 ~]# redis-trib.rb info 192.168.4.51:6379
+192.168.4.55:6379 (1e04d0a6...) -> 3 keys | 5462 slots | 1 slaves.
+192.168.4.53:6379 (b1eeee18...) -> 2 keys | 5461 slots | 1 slaves.
+192.168.4.52:6379 (e4c1522e...) -> 1 keys | 5461 slots | 1 slaves.
+192.168.4.59:6379 (a0723ee7...) -> 0 keys | 0 slots | 0 slaves.
+
+```
+
+
+
+##### 把集群中的主机恢复为独立的数据库服务器
+
+> 先把主机从集群中移除
+>
+> 停止redis服务
+>
+> 注释掉配置文件中的集群功能
+>
+> 清空数据库目录
+>
+> 启动服务
+>
+> 连接服务查看不到集群信息 也没有数据
+
+```shell
+# 51作为slave，恢复成独立redis要简单很多，因为没有slots，所以直接del node后就可以到该机器上清空数据即可
+[root@db51 ~]# rm -rfv /var/lib/redis/6379/*
+已删除"/var/lib/redis/6379/dump.rdb"
+已删除"/var/lib/redis/6379/nodes-6379.conf"
+
+[root@db51 ~]# vim /etc/redis/6379.conf
+#cluster-enabled yes
+#cluster-config-file nodes-6379.conf
+#cluster-node-timeout 5000
+
+[root@db51 ~]# /etc/init.d/redis_6379 start
+Starting Redis server...
+
+[root@db51 ~]# ss -tunlp | grep redis
+tcp    LISTEN     0      128    192.168.4.51:6379                  *:*                   users:(("redis-server",pid=23514,fd=6))
+
+# 52作为master节点，所以需要先reshard slots
+[root@redis57 ~]# redis-trib.rb reshard 192.168.4.52:6379
+How many slots do you want to move (from 1 to 16384)? 5461
+What is the receiving node ID? 1e04d0a6825ee66dc6099867289472e5911b2995
+
+[root@redis57 ~]# redis-trib.rb info 192.168.4.55:6379
+192.168.4.55:6379 (1e04d0a6...) -> 4 keys | 10923 slots | 1 slaves.
+192.168.4.52:6379 (e4c1522e...) -> 0 keys | 0 slots | 0 slaves.
+192.168.4.53:6379 (b1eeee18...) -> 2 keys | 5461 slots | 1 slaves.
+
+[root@redis57 ~]# redis-trib.rb check 192.168.4.55:6379 | grep 192.168.4.52
+M: e4c1522e98a0996197e601722a91804358d81239 192.168.4.52:6379
+
+[root@redis57 ~]# redis-trib.rb del-node 192.168.4.55:6379 e4c1522e98a0996197e601722a91804358d81239
+
+
+[root@redis52 ~]# rm -rfv /var/lib/redis/6379/*
+已删除"/var/lib/redis/6379/dump.rdb"
+已删除"/var/lib/redis/6379/nodes-6379.conf"
+[root@redis52 ~]# vim /etc/redis/6379.conf 
+[root@redis52 ~]# /etc/init.d/redis_6379 start
+Starting Redis server...
+[root@redis52 ~]# ss -tulnp | grep redis
+tcp    LISTEN     0      128    192.168.4.52:6379                  *:*                   users:(("redis-server",pid=10885,fd=6))
+[root@redis52 ~]# redis-cli -h 192.168.4.52 -p 6379
+192.168.4.52:6379> cluster info
+ERR This instance has cluster support disabled
+
+[root@redis52 ~]# redis-cli -h 192.168.4.52 -p 6379
+192.168.4.52:6379> info replication
+# Replication
+role:master	# 每台独立的数据库服务器 角色都master 
+connected_slaves:0
+...
+
+
+```
+
+### 主从复制
+
+#### 主从复制结构模式
+
+> 主服务器：接收客户端连接
+>
+> 从服务器：连接主服务器同步数据
+
+![image-20220226141046558](imgs/image-20220226141046558.png)
+
+
+
+#### 主从复制工作原理
+
+！！！说明！！！：从服务器首次做的是全量同步，且同步的数据会覆盖本机的数据
+
+1. slave向master发送sync命令
+2. master启动后台存盘进程，并收集所有修改数据命令
+3. master完成后台存盘后，传送整个数据文件到slave
+4. slave接收数据文件，加载到内存中完成首次完全同步，
+5. 后续有新数据产生时，master继续收集数据修改命令依次传给slave，完成同步
+
+#### 配置主从复制
+
+> - redis服务运行后 默认角色就是master（主）所以一台主机做master 服务器的话 无需配置
+> - 主从结构中的从服务器 都是只读的， 客户端连接从服务器对数据仅有查询权限
+> - !!!说明!!! 运行的redis服务 必须使用本机的 物理网卡口的地址 接收连接请求 （使用默认的lo 地址无法彼此之间建立连接）
+
+```
+命令行配置命令（马上生效 但不永久 适合配置线上服务器） 
+info  replication     #查看复制信息
+slaveof  主服务器ip地址  主服务器端口号   指定主服务服务器IP地址和服务端口号
+config rewrite # 使配置永久生效，执行该命令会修改配置文件
+slaveof   no  one     #临时恢复为主服务
+```
+
+```
+修改配置文件(永久有效,重启了redis服务依然有效)
+]# vim /etc/redis/6379.conf
+slaveof  主服务器ip地址   主服务器端口号
+```
+
+##### 一主一从
+
+```shell
+# 修改redis52为redis51的slave
+[root@redis52 ~]# redis-cli -h 192.168.4.52 -p 6379
+192.168.4.52:6379> info replication	# 查看复制信息
+# Replication
+role:master	# 角色是 master
+192.168.4.52:6379> slaveof 192.168.4.51 6379
+192.168.4.52:6379> info replication
+# Replication
+role:slave
+192.168.4.52:6379> config rewrite
+[root@redis52 ~]# tail -1 /etc/redis/6379.conf 
+slaveof 192.168.4.51 6379
+
+# 查看主从信息
+[root@db51 ~]# redis-cli -h 192.168.4.51 -p 6379
+192.168.4.51:6379> info replication
+# Replication
+role:master
+connected_slaves:1
+slave0:ip=192.168.4.52,port=6379,state=online,offset=308,lag=1
+192.168.4.51:6379> set x 101
+192.168.4.51:6379> mset a 1 b 2 c 3 d xixi
+
+# 查看从是否同步到数据
+[root@redis52 ~]# redis-cli -h 192.168.4.52 -p 6379
+192.168.4.52:6379> keys *
+1) "c"
+2) "x"
+3) "b"
+4) "a"
+5) "d"
+# redis从服务不支持写入数据
+192.168.4.52:6379> set z 123
+(error) READONLY You can't write against a read only slave.
+```
+
+##### 一主多从
+
+```shell
+# 把Redis服务器host53 也配置为 主机Host51 的slave服务器
+192.168.4.53:6379> SLAVEOF 192.168.4.51 6379
+192.168.4.53:6379> CONFIG REWRITE
+192.168.4.53:6379> keys *
+1) "a"
+2) "d"
+3) "x"
+4) "b"
+5) "c"
+
+192.168.4.51:6379> info replication
+# Replication
+role:master
+connected_slaves:2
+slave0:ip=192.168.4.52,port=6379,state=online,offset=979,lag=2
+slave1:ip=192.168.4.53,port=6379,state=online,offset=979,lag=1
+```
+
+##### 主从从
+
+```shell
+# 将redis53配置为redis52的从
+192.168.4.53:6379> slaveof no one	# 把一主多从结构中的host53主机恢复为独立的数据库服务器
+192.168.4.53:6379> slaveof 192.168.4.52 6379	#把redis53配置为redis52主机的slave服务器
+192.168.4.53:6379> config rewrite	# 永久配置
+
+#redis52查看既有主服务器的信息又有从服务器的信息
+192.168.4.52:6379> info replication
+# Replication
+role:slave
+master_host:192.168.4.51
+master_port:6379
+master_link_status:up
+...
+connected_slaves:1
+slave0:ip=192.168.4.53,port=6379,state=online,offset=2320,lag=0
+
+# 在host51主机存储数据 ， 主机host52  和  host53  都会有同样的数据
+```
+
+
+
+#### 反客为主
+
+> 将从库恢复为主库
+
+```
+slaveof no one
+config rewrite
+```
+
+#### 配置带验证的主从复制
+
+> 意思就是：主从结构中的master服务器设置了连接密码，slave服务器要指定连接密码才能正常同步master主机数据
+
+```shell
+# 设置master连接密码
+[root@db51 ~]# redis-cli -h 192.168.4.51 -p 6379
+192.168.4.51:6379> config get requirepass
+1) "requirepass"
+2) ""
+192.168.4.51:6379> config set requirepass 654321
+OK
+192.168.4.51:6379> config rewrite
+(error) NOAUTH Authentication required.
+192.168.4.51:6379> auth 654321	#输入密码
+OK
+192.168.4.51:6379> config rewrite	#永久生效
+OK
+192.168.4.51:6379> config get requirepass
+1) "requirepass"
+2) "654321"
+192.168.4.51:6379> exit
+[root@db51 ~]# redis-cli -h 192.168.4.51 -p 6379 -a 654321
+192.168.4.51:6379> 
+
+```
+
+```shell
+# 在从redis52上设置连接redis51的密码
+192.168.4.52:6379> info replication
+# Replication
+role:slave
+master_host:192.168.4.51
+master_port:6379
+master_link_status:down	# 状态已经down掉
+192.168.4.52:6379> config get masterauth
+1) "masterauth"
+2) ""
+192.168.4.52:6379> config set masterauth 654321
+OK
+192.168.4.52:6379> config get masterauth
+1) "masterauth"
+2) "654321"
+192.168.4.52:6379> config rewrite
+OK
+192.168.4.52:6379> info replication
+# Replication
+role:slave
+master_host:192.168.4.51
+master_port:6379
+master_link_status:up	# 状态已经恢复up
+...
+192.168.4.52:6379> 
+```
+
+
+
+#### 哨兵服务
+
+> 监视主从复制结构中主服务器，发现主服务器无法连接后，会把对应的从升级为主数据库服务器，继续监视新的主数据库服务器，坏掉的主数据库服务器恢复后，会自动做当前主服务器的从主机
+>
+> 优点：
+>
+> 哨兵服务+redis主从服务 能够实现redis服务高可用和数据的自动备份，但远比Redis集群的资金成本和运维成本要低
+>
+> 说明：
+>
+> 1. 可以使用一主一从或 一主多从 或 主从从   +   哨兵服务 做服务的高可用 和 数据自动备份
+> 2. 如果主从结构中的redis服务设置连接密码的话必须全每台数据库都要设置密码且密码要一样
+> 3. 宕机的服务器 启动服务后，要人为指定主服务器的连接密码
+
+- 安装redis软件
+- 创建主配置文件
+- 启动哨兵服务
