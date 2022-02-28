@@ -8154,7 +8154,7 @@ Starting Redis server...
      > **槽的重新分配，那么槽数值对应的数据也会进行迁移**
 
      ![image-20220225174823967](imgs/image-20220225174823967.png)
-     
+  
      ```shell
   [root@redis57 ~]# redis-trib.rb reshard 192.168.4.52:6379
      How many slots do you want to move (from 1 to 16384)? 4096
@@ -8176,7 +8176,7 @@ Starting Redis server...
         slots:0-1364,5461-6826,10923-12287 (4096 slots) master
         0 additional replica(s)
      ```
-     
+  
      
 
 - 添加slave角色主机到集群
@@ -8642,9 +8642,244 @@ master_link_status:up	# 状态已经恢复up
 > 说明：
 >
 > 1. 可以使用一主一从或 一主多从 或 主从从   +   哨兵服务 做服务的高可用 和 数据自动备份
-> 2. 如果主从结构中的redis服务设置连接密码的话必须全每台数据库都要设置密码且密码要一样
-> 3. 宕机的服务器 启动服务后，要人为指定主服务器的连接密码
+> 2. **如果主从结构中的redis服务设置连接密码的话必须全每台数据库都要设置连接密码且密码要一样**
+> 3. **宕机的服务器 启动服务后，要人为指定主服务器的连接密码**
+
+![image-20220228091732107](imgs/image-20220228091732107.png)
 
 - 安装redis软件
+
+  ```
+  [root@redis57 ~]# tar -xf redis-4.0.8.tar.gz
+  [root@redis57 ~]# which gcc || yum -y install gcc
+  [root@redis57 redis-4.0.8]# make && make install
+  ```
+
+  
+
 - 创建主配置文件
+
+  ![image-20220228100647590](imgs/image-20220228100647590.png)
+
+  ```shell
+  [root@redis57 redis-4.0.8]# cp sentinel.conf /etc/
+  [root@redis57 redis-4.0.8]# vim /etc/sentinel.conf
+  bind 192.168.4.57
+  port 26379
+  sentinel monitor redis_server 192.168.4.51 6379 1
+  sentinel auth-pass redis_server 654321
+  #如果主服务器没有连接密码此配置项可用省略
+  
+  ```
+
+  
+
 - 启动哨兵服务
+
+  ```
+  [root@redis57 redis-4.0.8]# nohup redis-sentinel /etc/sentinel.conf > /dev/null 2>&1 &
+  [1] 13833
+  
+  ```
+
+- 验证
+
+  ```shell
+  #1. 停止主服务器51的redis服务
+  192.168.4.51:6379> shutdown
+  
+  #2. 在服务器52主机，查看复制信息, 角色为 master
+  192.168.4.52:6379> info replication
+  # Replication
+  role:master
+  slave0:ip=192.168.4.53,port=6379,state=online,offset=21584,lag=1
+  
+  #3. 查看哨兵服务主配置文件 监视的主服务器 自动修改为 从服务器的ip
+  [root@redis57 redis-4.0.8]# awk '/sentinel monitor/{print $0}' /etc/sentinel.conf 
+  # sentinel monitor <master-name> <ip> <redis-port> <quorum>
+  sentinel monitor redis_server 192.168.4.52 6379 1
+  
+  #4. 把宕机51主机的redis服务启动 ，会自动做当前主服务器52的从主机
+  [root@db51 redis-4.0.8]# /etc/init.d/redis_6379 start
+  Starting Redis server...
+  [root@db51 redis-4.0.8]# redis-cli -h 192.168.4.51 -p 6379 -a 654321
+  192.168.4.51:6379> info replication
+  role:slave
+  master_host:192.168.4.52
+  master_port:6379
+  master_link_status:down	#没有设置连接密码是down状态
+  192.168.4.51:6379> config set masterauth 654321	#设置连接主服务器密码
+  192.168.4.51:6379> config rewrite	#保存到配置文件
+  
+  #在host52主机查看复制信息
+  192.168.4.52:6379> info replication
+  	# 有2个从服务器
+  slave0:ip=192.168.4.53,port=6379,state=online,offset=50352,lag=1
+  slave1:ip=192.168.4.51,port=6379,state=online,offset=50352,lag=0
+  ```
+
+  
+
+### 持久化
+
+> Redis服务可以永久的保存数据
+>
+> 通过RDB和AOF这2种文件 均可以实现对数据的手动备份和手动恢复！！！
+
+##### RDB
+
+> RedisDataBase
+>
+> ![image-20220228105354122](imgs/image-20220228105354122.png)
+>
+> 指定就是数据库目录下的 dump.rdb 文件
+>
+> Redis运行服务后，会根据配置文件的设置的存盘频率 把内存里的数据复制到数据库目录下的dump.rdb文件里（覆盖保存）
+
+###### 使用RDB文件恢复数据
+
+###### 优化设置
+
+###### RDB优缺点
+
+> 优点：高性能的持久化实现 —— 创建一个子进程来执行持久化，先将数据写入临时文件，持久化过程结束后，再用这个临时文件替换上次持久化好的文件；过程中主进程不做任何IO操作比较适合大规模数据恢复，且对数据完整性要求不是非常高的场合
+>
+> 缺点：意外宕机时，丢失最后一次持久化的所有数据
+
+##### AOF
+
+> redis服务AOF文件（与mysql服务的binlog日志文件的功能相同）
+>
+> 是一个文件，记录连接redis服务后执行的写操作命令并且是以追加的方式记录写操作命令
+>
+> 默认没有开启，使用需要人为启用
+
+### 数据类型
+
+#### 字符类型
+
+> 字符串类型是 Redis 中最基本的数据类型，它能存储任何形式的字符串，包括二进制数据
+>
+> 可以用其存储用户的邮箱、JSON 化的对象甚至是一张图片
+>
+> 一个字符串类型键允许存储的数据的最大容量是512 MB
+>
+> 字符串类型是其他4种数据类型的基础，其他数据类型和字符串类型的差别从某种角度来说只是组织字符串的形式不同
+
+```
+set key value [EX seconds] [PX milliseconds] [NX|XX]
+存储变量是 设置变量的有效期  px(毫秒)  ex (秒)
+NX  变量不存在时赋值  如果存在就放弃赋值
+XX  变量存在时赋值 如果不存在放弃赋值
+
+GETRANGE key start end	#获取指定范围内的值
+	- 返回字串值中的子字串，截取范围是start和end
+	- 负数偏移量表示从末尾开始计数，-1表示最后一个字符，-2表示倒数第二个字符
+STRLEN key			#统计字串长度
+APPEND key value	#变量存在则追加并赋值，不存在则创建key和value，返回key长度
+decr key			#变量自减1
+decrby key decrement	#自定义自减的步长
+incr key			#变量自加1
+incrby key increment	#自定义自加的步长
+incrbyfloat key increment	#自定义自加的步长为浮点数(支持步长为负数)
+setrange key offset value	#从偏移量开始复写key的特定位的值
+setbit key offset value	
+	- 对Key所存储字串，设置或清除特定偏移量上的位(bit)
+	- value值可以为1或0，offset为
+	- key不卒子乃，则创建新key
+bitcount key [start end] #统计字串中被设置为1的比特位数量
+```
+
+
+
+```
+192.168.4.52:6379> set zfc abcdefg
+c192.168.4.52:6379> GETRANGE zfc 0 1
+"ab"
+192.168.4.52:6379> GETRANGE zfc 2 4
+"cde"
+192.168.4.52:6379> GETRANGE zfc -2 -1
+"fg"
+192.168.4.52:6379> STRLEN zfc
+(integer) 7
+192.168.4.52:6379> APPEND zfc hijk
+(integer) 11
+192.168.4.52:6379> get zfc
+"abcdefghijk"
+192.168.4.52:6379> set i 1
+OK
+192.168.4.52:6379> DECR i
+(integer) 0
+192.168.4.52:6379> decr i
+(integer) -1
+192.168.4.52:6379> decr i
+(integer) -2
+192.168.4.52:6379> set x 10
+OK
+192.168.4.52:6379> DECRBY x 2
+(integer) 8
+192.168.4.52:6379> DECRBY x 2
+(integer) 6
+192.168.4.52:6379> DECRBY x 2
+(integer) 4
+192.168.4.52:6379> set i 9
+OK
+192.168.4.52:6379> incr i
+(integer) 10
+192.168.4.52:6379> incr i
+(integer) 11
+192.168.4.52:6379> incrby i 3
+(integer) 14
+192.168.4.52:6379> incrby i 3
+(integer) 17
+192.168.4.52:6379> incrbyfloat i 0.5
+"17.5"
+192.168.4.52:6379> incrbyfloat i 0.5
+"18"
+192.168.4.52:6379> incrbyfloat i 0.5
+"18.5"
+192.168.4.52:6379> incrbyfloat i -0.5
+"18"
+192.168.4.52:6379> incrbyfloat i -0.5
+"17.5"
+192.168.4.52:6379> setrange zfc 3 ABC
+(integer) 11
+192.168.4.52:6379> get zfc
+"abcABCghijk"
+192.168.4.52:6379> setbit login 0 1
+(integer) 0
+192.168.4.52:6379> setbit login 1 1
+(integer) 0
+192.168.4.52:6379> setbit login 2 1
+(integer) 0
+192.168.4.52:6379> setbit login 3 0
+(integer) 0
+192.168.4.52:6379> setbit login 4 0
+(integer) 0
+192.168.4.52:6379> setbit login 5 0
+(integer) 0
+192.168.4.52:6379> setbit login 6 1
+(integer) 0
+192.168.4.52:6379> setbit login 7 1
+(integer) 0
+192.168.4.52:6379> setbit login 8 0
+(integer) 0
+192.168.4.52:6379> bitcount login
+(integer) 5
+192.168.4.52:6379> setbit login 100 1
+(integer) 0
+192.168.4.52:6379> setbit login 105 1
+(integer) 0
+192.168.4.52:6379> bitcount login
+(integer) 7
+
+
+```
+
+
+
+#### 列表类型
+
+#### Hash类型
+
+#### 集合类型
