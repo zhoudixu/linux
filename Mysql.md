@@ -8738,7 +8738,77 @@ master_link_status:up	# 状态已经恢复up
 
 ###### 使用RDB文件恢复数据
 
+![image-20220228162234678](imgs/image-20220228162234678.png)
+
+```shell
+192.168.4.53:6379> mset a 1 b 2 c 3 d 4 e 5
+OK
+192.168.4.53:6379> keys *
+1) "c"
+2) "e"
+3) "d"
+4) "a"
+5) "b"
+192.168.4.53:6379> save
+OK
+192.168.4.53:6379> exit
+[root@redis53 ~]# vim /etc/redis/6379.conf 
+[root@redis53 ~]# cp /var/lib/redis/6379/dump.rdb /opt
+[root@redis53 ~]# ls /opt/
+dump.rdb
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321 
+192.168.4.53:6379> keys *
+1) "c"
+2) "e"
+3) "d"
+4) "a"
+5) "b"
+192.168.4.53:6379> flushall
+OK
+192.168.4.53:6379> keys *
+(empty list or set)
+192.168.4.53:6379> shutdown
+not connected> exit
+[root@redis53 ~]# rm -rfv /var/lib/redis/6379/dump.rdb 
+已删除"/var/lib/redis/6379/dump.rdb"
+[root@redis53 ~]# cp /opt/dump.rdb /var/lib/redis/6379/
+[root@redis53 ~]# ls /var/lib/redis/6379/
+dump.rdb
+[root@redis53 ~]# /etc/init.d/redis_6379 start
+Starting Redis server...
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321
+192.168.4.53:6379> keys *
+1) "e"
+2) "c"
+3) "a"
+4) "b"
+5) "d"
+```
+
+
+
 ###### 优化设置
+
+- 查看默认存盘频率
+
+  ```shell
+  [root@redis53 ~]# vim /etc/redis/6379.conf
+  save 900 1		//15分钟且有1个key改变即存盘
+  save 300 10		//5分钟且有10key改变即存盘
+  save 60 10000	//1钟且有1万个key即存盘
+  
+  ```
+
+  
+
+- 手动存盘
+
+  ```
+  save	#阻塞写存盘
+  bgsave	#不阻塞写存盘
+  ```
+
+  
 
 ###### RDB优缺点
 
@@ -8746,13 +8816,151 @@ master_link_status:up	# 状态已经恢复up
 >
 > 缺点：意外宕机时，丢失最后一次持久化的所有数据
 
+
+
 ##### AOF
 
+> Append only File
+>
 > redis服务AOF文件（与mysql服务的binlog日志文件的功能相同）
 >
 > 是一个文件，记录连接redis服务后执行的写操作命令并且是以追加的方式记录写操作命令
 >
 > 默认没有开启，使用需要人为启用
+>
+> ![image-20220228164410759](imgs/image-20220228164410759.png)
+
+###### 启用AOE
+
+```shell
+config get appendonly	#查看
+1) "appendonly"
+2) "no"
+config set appendonly yes	#启用
+OK
+config rewrite	#保存到配置文件
+OK
+]# ls /var/lib/redis/6379/appendonly.aof	#文件存放位置
+```
+
+
+
+###### 使用AOF文件恢复数据
+
+![image-20220228165226722](imgs/image-20220228165226722.png)
+
+```shell
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321
+192.168.4.53:6379> keys *
+ 1) "m"
+ 2) "c"
+ 3) "g"
+ 4) "i"
+ 5) "l"
+ 6) "h"
+ 7) "d"
+ 8) "b"
+ 9) "a"
+10) "e"
+11) "j"
+192.168.4.53:6379> mset name bobo age 19 add biejing sex man
+OK
+192.168.4.53:6379> exit
+[root@redis53 ~]# cp /var/lib/redis/6379/
+appendonly.aof  dump.rdb        
+[root@redis53 ~]# cp /var/lib/redis/6379/
+appendonly.aof  dump.rdb        
+[root@redis53 ~]# cp /var/lib/redis/6379/appendonly.aof /opt/
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321 shutdown
+[root@redis53 ~]# rm -rfv /var/lib/redis/6379/*
+已删除"/var/lib/redis/6379/appendonly.aof"
+已删除"/var/lib/redis/6379/dump.rdb"
+[root@redis53 ~]# cp /opt/appendonly.aof /var/lib/redis/6379/
+[root@redis53 ~]# /etc/init.d/redis_6379 start
+Starting Redis server...
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321
+192.168.4.53:6379> keys *
+ 1) "l"
+ 2) "sex"
+ 3) "age"
+ 4) "name"
+ 5) "g"
+ 6) "d"
+ 7) "b"
+ 8) "j"
+ 9) "h"
+10) "e"
+11) "add"
+12) "i"
+13) "m"
+14) "a"
+15) "c"
+```
+
+
+
+###### 优化配置
+
+```shell
+appendonly yes					#启用aof,默认是no
+appendfilename "appendonly.aof"	#指定文件名
+
+# appendfsync always			#时刻记录，并完成磁盘同步
+appendfsync everysec			#每秒记录一次，并完成磁盘同步
+# appendfsync no				#写入aof,不执行磁盘同步(数据不写入RDB文件)
+
+auto-aof-rewrite-percentage 100	#再次重写，增长百分比
+auto-aof-rewrite-min-size 64mb	#首次重写触发值
+
+]# redis-check-aof --fix /var/lib/redis/6379/appendonly.aof 
+#把文件恢复到最后一次正确的操作
+```
+
+```shell
+# 模拟AOF文件损坏
+[root@redis53 ~]# cat >> /var/lib/redis/6379/appendonly.aof  <<EOF
+> DKDKDKKDLS
+> EOF
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321 shutdown
+[root@redis53 ~]# /etc/init.d/redis_6379 start
+Starting Redis server...
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321 shutdown
+Could not connect to Redis at 192.168.4.53:6379: Connection refused
+
+# 查看日志检查redis服务无法启动原因
+[root@redis53 ~]# less /var/log/redis_6379.log 
+...
+13612:M 28 Feb 17:15:13.401 # Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>
+
+# 修复aof文件
+[root@redis53 ~]# redis-check-aof --fix /var/lib/redis/6379/appendonly.aof 
+0x             203: Expected prefix '*', got: 'D'
+AOF analyzed: size=526, ok_up_to=515, diff=11
+This will shrink the AOF from 526 bytes, with 11 bytes, to 515 bytes
+Continue? [y/N]: y	#同意修复
+Successfully truncated AOF
+
+# 重启redis服务
+[root@redis53 ~]# /etc/init.d/redis_6379 start
+/var/run/redis_6379.pid exists, process is already running or crashed	#提示PID文件存储
+[root@redis53 ~]# rm -rfv /var/run/redis_6379.pid 
+已删除"/var/run/redis_6379.pid"	#删除文件
+[root@redis53 ~]# /etc/init.d/redis_6379 start
+Starting Redis server...
+[root@redis53 ~]# redis-cli -h 192.168.4.53 -p 6379 -a 654321
+192.168.4.53:6379> keys *
+```
+
+
+
+###### AOF优缺点
+
+- 优点
+  - 可以灵活设置持久化方式
+  - 出现意外宕机时，仅可能丢失1秒的数据
+- 缺点
+  - 持久化文件的体积通常会大于RDB方式
+  - 执行fsync策略时的速度可比RDB方式慢
 
 ### 数据类型
 
@@ -8766,7 +8974,7 @@ master_link_status:up	# 状态已经恢复up
 >
 > 字符串类型是其他4种数据类型的基础，其他数据类型和字符串类型的差别从某种角度来说只是组织字符串的形式不同
 
-```
+```shell
 set key value [EX seconds] [PX milliseconds] [NX|XX]
 存储变量是 设置变量的有效期  px(毫秒)  ex (秒)
 NX  变量不存在时赋值  如果存在就放弃赋值
@@ -8792,7 +9000,7 @@ bitcount key [start end] #统计字串中被设置为1的比特位数量
 
 
 
-```
+```shell
 192.168.4.52:6379> set zfc abcdefg
 c192.168.4.52:6379> GETRANGE zfc 0 1
 "ab"
@@ -8872,14 +9080,354 @@ OK
 (integer) 0
 192.168.4.52:6379> bitcount login
 (integer) 7
-
-
 ```
 
 
 
 #### 列表类型
 
+> 列表类型（list）可以存储一个有序的字符串列表
+>
+> 先进后出
+>
+> 常用的操作是向列表两端添加元素，或者获得列表的某一个片段
+>
+> 列表类型内部是使用双向链表（double linked list）实现的，获取越接近两端的元素速度就越快
+
+```shell
+lpush key value [value ...]	#用来向列表左边增加元素，返回值表示增加元素后列表的长度
+lrange key start stop
+llen key	#获取列表中元素的个数
+lindex key index	#返回列表中第index个值
+lset key index value	#设置指定索引的元素值
+lpop key #移除并返回列表头元素数据
+lpush key value [value ...]	#将value插入到key的末尾，返回值表示增加元素后列表的长度
+rpop key	#删除并返回key末尾的值
+LREM key count value	#移除列表中的元素
+```
+
+
+
+```shell
+192.168.4.52:6379> lpush teacher nb wk zzg nfx plj lx
+(integer) 6
+192.168.4.52:6379> lpush teacher dmy
+(integer) 7
+192.168.4.52:6379> lrange teacher 0 -1	## 起始下标为0，结束下标为-1
+1) "dmy"
+2) "lx"
+3) "plj"
+4) "nfx"
+5) "zzg"
+6) "wk"
+7) "nb"
+192.168.4.52:6379> type teacher
+list
+192.168.4.52:6379> llen teacher
+(integer) 7
+192.168.4.52:6379> lindex teacher 2
+"plj"
+192.168.4.52:6379> lrange teacher 2 4
+1) "plj"
+2) "nfx"
+3) "zzg"
+192.168.4.52:6379> lrange teacher -2 -1
+1) "wk"
+2) "nb"
+192.168.4.52:6379> lset teacher 2 panglijing
+OK
+192.168.4.52:6379> lindex teacher 2
+"panglijing"
+192.168.4.52:6379> lrange teacher 0 -1
+1) "dmy"
+2) "lx"
+3) "panglijing"
+4) "nfx"
+5) "zzg"
+6) "wk"
+7) "nb"
+192.168.4.52:6379> lpop teacher
+"dmy"
+192.168.4.52:6379> lrange teacher 0 -1
+1) "lx"
+2) "panglijing"
+3) "nfx"
+4) "zzg"
+5) "wk"
+6) "nb"
+192.168.4.52:6379> rpush teacher  A B C
+(integer) 9
+192.168.4.52:6379> lrange teacher 0 -1
+1) "lx"
+2) "panglijing"
+3) "nfx"
+4) "zzg"
+5) "wk"
+6) "nb"
+7) "A"
+8) "B"
+9) "C"
+192.168.4.52:6379> rpop teacher
+"C"
+192.168.4.52:6379> lrange teacher 0 -1
+1) "lx"
+2) "panglijing"
+3) "nfx"
+4) "zzg"
+5) "wk"
+6) "nb"
+7) "A"
+8) "B"
+192.168.4.52:6379> LREM teacher 1 nfx
+(integer) 1
+192.168.4.52:6379> lrange teacher 0 -1
+1) "lx"
+2) "panglijing"
+3) "zzg"
+4) "wk"
+5) "nb"
+6) "A"
+7) "B"
+
+```
+
+
+
 #### Hash类型
 
+> ![image-20220228143957631](imgs/image-20220228143957631.png)
+
+```shell
+hset key field value	#将hash表中field值设置为value
+hgetall key	#返回hash表中所有field的值
+hmset key field value [field value ...]	#同时给hash表中的多个field赋值
+hmget key field [field ...] #返回hash表中多个field的值
+hkeys key	#返回hash表中所有field名称
+hvals key	#返回hash表中所有field的值
+hget key field	#获取hash表中field的值
+hdel key field [field ...]	#删除hash表中多个field的值，不存在则忽略
+hexists key field	#判断字段是否存在
+hsetnx key field value	#当字段不存在时赋值
+hincrby key field increment	#数字递增
+```
+
+```shell
+192.168.4.52:6379> hset xng shell 60
+(integer) 1
+192.168.4.52:6379> hgetall xng
+1) "shell"
+2) "60"
+3) "python"
+4) "59"
+5) "dba1"
+6) "60"
+7) "dba2"
+8) "71"
+192.168.4.52:6379> hmset xng mail xng@163.com age 58 tel 101
+OK
+192.168.4.52:6379> hgetall xng
+ 1) "shell"
+ 2) "60"
+ 3) "python"
+ 4) "59"
+ 5) "dba1"
+ 6) "60"
+ 7) "dba2"
+ 8) "71"
+ 9) "mail"
+10) "xng@163.com"
+11) "age"
+12) "58"
+13) "tel"
+14) "101"
+192.168.4.52:6379> hkeys xng
+1) "shell"
+2) "python"
+3) "dba1"
+4) "dba2"
+5) "mail"
+6) "age"
+7) "tel"
+192.168.4.52:6379> hvals xng
+1) "60"
+2) "59"
+3) "60"
+4) "71"
+5) "xng@163.com"
+6) "58"
+7) "101"
+192.168.4.52:6379> hget xng mail
+"xng@163.com"
+192.168.4.52:6379> hdel xng python mail age
+(integer) 3
+192.168.4.52:6379> hkeys xng
+1) "shell"
+2) "dba1"
+3) "dba2"
+4) "tel"
+192.168.4.52:6379> hexists xng dba1
+(integer) 1
+192.168.4.52:6379> hexists xng mail
+(integer) 0
+192.168.4.52:6379> hsetnx xng mail xng@tedu.cn
+(integer) 1
+192.168.4.52:6379> hincrby xng age 20
+(integer) 20
+192.168.4.52:6379> hgetall xng
+ 1) "shell"
+ 2) "60"
+ 3) "dba1"
+ 4) "60"
+ 5) "dba2"
+ 6) "71"
+ 7) "tel"
+ 8) "101"
+ 9) "mail"
+10) "xng@tedu.cn"
+11) "age"
+12) "20"
+192.168.4.52:6379> hincrby xng age 1
+(integer) 21
+```
+
+
+
 #### 集合类型
+
+###### 无序集合
+
+> 集合中的每个元素都是唯一的，且没有顺序
+
+```shell
+sadd key member [member ...]	#
+smembers key	#
+srem key member [member ...]	#
+sinter key [key ...]	#
+sunion key [key ...]	#
+sdiff key [key ...]	#
+srandmember key [count]	#
+
+```
+
+```
+192.168.4.52:6379> sadd tim sleep eat money game
+(integer) 4
+192.168.4.52:6379> type tim
+set
+192.168.4.52:6379> smembers tim
+1) "eat"
+2) "sleep"
+3) "game"
+4) "money"
+192.168.4.52:6379> srem tim money
+(integer) 1
+192.168.4.52:6379> smembers tim
+1) "eat"
+2) "sleep"
+3) "game"
+192.168.4.52:6379> sadd dng eat sleep game it
+(integer) 4
+192.168.4.52:6379> smembers dng
+1) "sleep"
+2) "eat"
+3) "game"
+4) "it"
+192.168.4.52:6379> sinter tim dng
+1) "eat"
+2) "sleep"
+3) "game"
+192.168.4.52:6379> sunion tim dng
+1) "sleep"
+2) "eat"
+3) "game"
+4) "it"
+192.168.4.52:6379> sdiff dng tim
+1) "it"
+192.168.4.52:6379> scard dng
+(integer) 4
+192.168.4.52:6379> srandmember dng 2
+1) "eat"
+2) "it"
+
+```
+
+
+
+###### 有序集合
+
+![image-20220228154645900](imgs/image-20220228154645900.png)
+
+```shell
+zadd key [NX|XX] [CH] [INCR] score member [score member ...]	# ZADD 命令用来向有序集合中加入一个元素和该元素的分数，如果该元素已经存在则会用新的分数替换原有的分数。ZADD命令的返回值是新加入到集合中的元素个数
+zrange key start stop [WITHSCORES]	#
+zscore key member	#获取元素的分数
+zrange score start stop [WITHSCORES]	#获取指定分数范围内的元素
+zcard key	#获得集合中元素的数量
+zrem key member [member ...]	#删除元素
+```
+
+
+
+```
+192.168.4.52:6379> del plj
+(integer) 0
+192.168.4.52:6379> zadd plj 10 game
+(integer) 1
+192.168.4.52:6379> zadd plj 20 buy
+(integer) 1
+192.168.4.52:6379> zadd plj 40 wear
+(integer) 1
+192.168.4.52:6379> type zadd
+none
+192.168.4.52:6379> type plj
+zset
+192.168.4.52:6379> zrange plj 0 -1
+1) "game"
+2) "buy"
+3) "wear"
+192.168.4.52:6379> zrange plj 0 -1 withscores
+1) "game"
+2) "10"
+3) "buy"
+4) "20"
+5) "wear"
+6) "40"
+192.168.4.52:6379> zscore plj game
+"10"
+192.168.4.52:6379> zrangebyscore plj 10 30
+1) "game"
+2) "buy"
+192.168.4.52:6379> zrangebyscore plj 10 30 withscores
+1) "game"
+2) "10"
+3) "buy"
+4) "20"
+192.168.4.52:6379> zcard plj
+(integer) 3
+192.168.4.52:6379> zadd plj 30 it
+(integer) 1
+192.168.4.52:6379> zrange plj 0 -1
+1) "game"
+2) "buy"
+3) "it"
+4) "wear"
+192.168.4.52:6379> zrange plj 0 -1 withscores
+1) "game"
+2) "10"
+3) "buy"
+4) "20"
+5) "it"
+6) "30"
+7) "wear"
+8) "40"
+192.168.4.52:6379> zrem plj it wear
+(integer) 2
+192.168.4.52:6379> zcard plj
+(integer) 2
+192.168.4.52:6379> zrange plj 0 -1 withscores
+1) "game"
+2) "10"
+3) "buy"
+4) "20"
+```
+
