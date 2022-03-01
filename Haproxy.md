@@ -22,6 +22,15 @@ listen wordpress *:80
 [root@proxy ~]# systemctl enable haproxy.service --now
 [root@proxy ~]# ss -tlnp | grep :80
 LISTEN     0      128          *:80
+
+# 数据库的负载均衡配置
+listen mysql_3306 *:3306 //定义haproxy服务名称与端口号
+    mode    tcp        //mysql服务 得使用 tcp 协议
+    option  tcpka      //使用长连接
+    balance roundrobin //调度算法
+    server  mysql_01 192.168.4.66:3306 check  //第1台数据库服务器
+    server  mysql_02 192.168.4.10:3306 check  //第2台数据库服务器
+    server  mysql_03 192.168.4.88:3306 check  //第3台数据库服务器
 ```
 
 ## 监控页面

@@ -5240,6 +5240,8 @@ mysql> GRANT ALL ON db2.* TO tim@"%" IDENTIFIED BY "123456";
 
 6. 查看监视信息
 
+   ![image-20220301142338512](imgs/image-20220301142338512.png)
+
    ```SHELL
    ]#maxadmin -uadmin -pmariadb -P端口
    >list servers
@@ -5328,6 +5330,35 @@ mysql: [Warning] Using a password on the command line interface can be insecure.
 |  222 |
 +------+
 ```
+
+8. 配置上 systemctl 的方式启动 maxscale
+
+   ```shell
+   vim /usr/lib/systemd/system/maxscale.service
+   [Unit]
+   Description=MariaDB MaxScale Database Proxy
+   After=network.target
+    
+   [Service]
+   Type=forking
+   Restart=on-abort
+   # PIDFile=/var/run/maxscale/maxscale.pid
+   ExecStartPre=/usr/bin/install -d /var/run/maxscale -o maxscale -g maxscale
+   ExecStart=/usr/bin/maxscale --user=maxscale -f /etc/maxscale.cnf
+   TimeoutStartSec=120
+   LimitNOFILE=65535
+    
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+9. 测试读写分离服务（每次连接数据库服务 ，访问的是读写分离服务器）
+
+   ```
+   ]# mysql -h读写分离服务-器IP -P4006 -u用户 -p密码
+   ```
+
+   
 
 ## MySQL多实例
 
