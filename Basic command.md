@@ -175,3 +175,51 @@ kill -9 %N	杀掉通过jobs命令查看到任务号的后台进程
 kill -9 PID ps命令查看任务PID，然后通过PID杀掉进程
 ```
 
+## Locate
+
+```shell
+#locate(locate) 命令用来查找文件或目录。 locate命令要比find -name快得多，原因在于它不搜索具体目录，而是搜索一个数据库/var/lib/mlocate/mlocate.db
+我们在用whereis和locate 查找文件时，有时会找到已经被删除的数据，或者刚刚建立文件，却无法查找到，原因就是因为数据库文件没有被更新
+可以在使用locate之前，先使用updatedb命令，手动更新数据库
+[root@localhost ~]# locate /etc/my.cnf
+/etc/my.cnf
+/etc/my.cnf.d
+/etc/my.cnf.d/auth_gssapi.cnf
+/etc/my.cnf.d/client.cnf
+/etc/my.cnf.d/enable_encryption.preset
+/etc/my.cnf.d/mariadb-server.cnf
+/etc/my.cnf.d/mysql-clients.cnf
+
+```
+
+## RPM
+
+```shell
+# 查询firefox程序是哪个RPM包安装的
+[root@localhost ~]# rpm -qf $(which firefox)
+firefox-68.6.0-1.el8_1.x86_64
+
+rpm -ivh /路径/rpm包文件
+-i 安装
+-v 显示细节信息
+-h 以#号显示安装进度
+--force:强制安装、覆盖安装
+
+rpm -e 软件名 #卸载软件
+
+
+```
+
+## Crontab
+
+![image-20220304213135030](imgs/image-20220304213135030.png)
+
+## mkdir
+
+```shell
+#创建目录的同时赋予权限
+[root@localhost ~]# mkdir -m 755 /tim_test
+[root@localhost ~]# ll -d /tim_test/
+drwxr-xr-x 2 root root 6 3月   4 21:39 /tim_test/
+```
+
