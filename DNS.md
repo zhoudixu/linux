@@ -326,8 +326,81 @@ options {
 
 ```
 
+### 缓存DNS
 
+```shell
+#全局转发式缓存，
+#以转发至202.106.0.20; 8.8.8.8为例，前提是缓存DNS和上述DNS之间网络畅通
+]# vim /etc/named.conf	#该配置文件只需要以下内容即可实现DNS缓存
+options {
+        directory       "/var/named";
+        forwarders { 202.106.0.20; 8.8.8.8; };
+};
 
-### 架构
+#客户端机器的DNS指向缓存DNS服务器的IP即可
+]# nslookup www.baidu.com
+Server:         192.168.4.5
+Address:        192.168.4.5#53
 
-#### 主从架构
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+www.a.shifen.com        canonical name = www.wshifen.com.
+Name:   www.wshifen.com
+Address: 103.235.46.39
+```
+
+### 主从DNS
+
+- 主DNS
+
+  ```shell
+  ]# /etc/named.conf
+  options {
+       directory       "/var/named";
+       allow-transfer  {  192.168.4.207;   }; #允许谁进行传输数据
+  };
+  zone "lol.com" IN {
+          type master;
+          file "lol.com.zone";
+  };
+  
+  
+  ]# /var/named/lol.com.zone
+   ……此处省略一万字
+  lol.com.   NS   svr7
+  lol.com.   NS   pc207            #声明从DNS服务器
+  svr7         A     192.168.4.7
+  pc207      A     192.168.4.207
+  www        A     4.4.4.4
+  
+  ```
+
+  
+
+- 从DNS
+
+  ```shell
+  ]# vim   /etc/named.conf
+  options  {
+          directory       "/var/named";
+  };
+  zone  "lol.com"  IN  {
+    type   slave;               #类型为从服务器
+    file "/var/named/slaves/lol.com.slave";  #确保named用户有读写执行权限
+    masters { 192.168.4.7; };   #指定主DNS服务器
+    masterfile-format text;     #地址库文件明文存储
+  };
+  ```
+
+- 主从数据同步
+
+  ```shell
+  2021111601     ; serial  #数据的版本号，由10个数字组成
+         1D      ; refresh #每隔1天主从进行交流
+         1H      ; retry  #失效之后的时间间隔每一个1小时
+         1W      ; expire #真正的失效时间，1周
+         3H )    ; minimum  #失效记录的记忆时间3小时
+  #修改主DNS的版本serial号，然后重启named，可以实现主从数据立刻同步
+  ```
+
+  
