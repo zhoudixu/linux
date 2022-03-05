@@ -223,3 +223,120 @@ rpm -e 软件名 #卸载软件
 drwxr-xr-x 2 root root 6 3月   4 21:39 /tim_test/
 ```
 
+## Parted
+
+```shell
+[root@localhost ~]parted /dev/sdb
+(parted) mktable gpt	#指定分区模式
+(parted) mkpart			#划分新的分区 
+分区名称？  []?			 #随意写，不写也可以
+文件系统类型？  [ext2]?	 #随意写，不写也可以
+起始点？ 0
+结束点？ 5G
+警告: The resulting partition is not properly aligned for best performance.
+忽略/Ignore/放弃/Cancel? Ignore	#选择忽略，输入i(tab)补全
+(parted) print
+Model: VMware, VMware Virtual S (scsi)
+Disk /dev/sdb: 21.5GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags:
+
+Number  Start   End     Size    File system  Name  标志
+ 1      17.4kB  5000MB  5000MB
+
+(parted) unit GB		#使用GB作为单位
+(parted) print
+Model: VMware, VMware Virtual S (scsi)
+Disk /dev/sdb: 21.5GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags:
+
+Number  Start   End     Size    File system  Name  标志
+ 1      0.00GB  5.00GB  5.00GB
+
+(parted) mkpart
+分区名称？  []?
+文件系统类型？  [ext2]?
+起始点？ 5G
+结束点？ 10G
+(parted) print
+Model: VMware, VMware Virtual S (scsi)
+Disk /dev/sdb: 21.5GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags:
+
+Number  Start   End     Size    File system  Name  标志
+ 1      0.00GB  5.00GB  5.00GB
+ 2      5.00GB  10.0GB  5.00GB
+
+(parted) mkpart
+分区名称？  []?
+文件系统类型？  [ext2]?
+起始点？ 10G
+结束点？ 20G
+(parted) print
+Model: VMware, VMware Virtual S (scsi)
+Disk /dev/sdb: 21.5GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags:
+
+Number  Start   End     Size    File system  Name  标志
+ 1      0.00GB  5.00GB  5.00GB
+ 2      5.00GB  10.0GB  5.00GB
+ 3      10.0GB  20.0GB  10.0GB
+
+(parted) quit
+信息: You may need to update /etc/fstab.
+
+[root@proxy ~]# lsblk
+NAME            MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda               8:0    0   20G  0 disk
+├─sda1            8:1    0    1G  0 part /boot
+└─sda2            8:2    0   19G  0 part
+  ├─centos-root 253:0    0   17G  0 lvm  /
+  └─centos-swap 253:1    0    2G  0 lvm  [SWAP]
+sdb               8:16   0   20G  0 disk
+├─sdb1            8:17   0  4.7G  0 part
+├─sdb2            8:18   0  4.7G  0 part
+└─sdb3            8:19   0  9.3G  0 part
+sr0              11:0    1  8.8G  0 rom  /mydvd
+
+```
+
+## Pstree
+
+```shell
+]# pstree -ap  #查看进程树
+-a 显示完整的命令行
+-p 显示对应的pid号
+```
+
+## ps
+
+```
+]# ps -l
+F S   UID    PID   PPID  C PRI  NI ADDR SZ WCHAN  TTY          TIME CMD
+4 S     0   1625   1619  0  80   0 - 29011 do_wai pts/0    00:00:00 bash
+0 R     0   2123   1625  0  80   0 - 38300 -      pts/0    00:00:00 ps
+
+```
+
+## Journalctl
+
+```
+]# journalctl -u 服务名 -p 优先级 -n 消息条数
+优先级：
+emerg紧急
+alter警告
+crit 严重
+err  错误
+warning 警告
+notice  注意
+info    信息
+debug   调试
+```
+
