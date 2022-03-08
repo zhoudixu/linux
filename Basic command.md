@@ -327,7 +327,7 @@ F S   UID    PID   PPID  C PRI  NI ADDR SZ WCHAN  TTY          TIME CMD
 
 ## Journalctl
 
-```
+```shell
 ]# journalctl -u 服务名 -p 优先级 -n 消息条数
 优先级：
 emerg紧急
@@ -338,5 +338,11 @@ warning 警告
 notice  注意
 info    信息
 debug   调试
+```
+
+## lsof
+
+```
+
 ```
 
