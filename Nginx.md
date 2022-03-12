@@ -2,6 +2,75 @@
 
 [toc]
 
+## Nginx环境初始化
+
+```shell
+]# yum -y install gcc make pcre-devel openssl-devel
+]# useradd nginx
+]# ./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-http_ssl_module
+]# make && make install
+```
+
+## 用户认证
+
+```shell
+location / {
+            root   html;
+            index  index.html index.htm;
+            auth_basic "请输入用户名和密码";
+            auth_basic_user_file /usr/local/nginx/pass;
+        }
+
+]# htpasswd -c /usr/local/nginx/pass admin	#创建认证用户
+New password:
+Re-type new password:
+Adding password for user admin
+
+#使用用户名和密码访问nginx网页
+]# curl http://www.aa.com -u admin:123456
+aa
+```
+
+## 虚拟主机
+
+![image-20220312132420264](imgs/image-20220312132420264.png)
+
+![image-20220312132433607](imgs/image-20220312132433607.png)
+
+![image-20220312132448774](imgs/image-20220312132448774.png)
+
+## SSL加密
+
+```shell
+    server {
+        listen       443 ssl;
+        server_name  www.cc.com;
+
+        ssl_certificate      cert.pem;	#文件默认路径在conf下
+        ssl_certificate_key  cert.key;	#文件默认路径在conf下
+
+        ssl_session_cache    shared:SSL:1m;
+        ssl_session_timeout  5m;
+
+        ssl_ciphers  HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers  on;
+
+        location / {
+            root   cc;
+            index  index.html index.htm;
+        }
+    }
+
+
+]# openssl genrsa > cert.key 2048
+]# openssl req -new -x509 -key cert.key > cert.pem	#-x509：生成自签名的证书
+]# curl -k https://www.cc.com
+cc
+
+```
+
+
+
 ## Nginx自动启动配置
 
 ### 配置为service服务
@@ -46,7 +115,78 @@ apache    2349  0.0  3.0 369384 44644 ?        S    13:07   0:02 php-fpm: pool w
 
 ```
 
+## Rewrite
+
+![image-20220312161100439](imgs/image-20220312161100439.png)
+
+![image-20220312161129172](imgs/image-20220312161129172.png)
+
+![image-20220312161141072](imgs/image-20220312161141072.png)
+
+![image-20220312161154084](imgs/image-20220312161154084.png)
+
+![image-20220312161211592](imgs/image-20220312161211592.png)
+
+![image-20220312161240925](imgs/image-20220312161240925.png)
+
+```shell
+    server {
+        listen 80;
+        server_name www.bb.com;
+
+         location / {
+            root   bb;
+            index  index.html index.htm;
+            rewrite ^/(.*) http://www.aa.com/$1 permanent;
+        }
+
+    }
+
+]# curl -L http://www.bb.com/bb.html
+this has been changed to aa
+
+```
+
+
+
+## Nginx http调度
+
+### 算法
+
+> 轮询：默认算法，逐一循环调度
+>
+> weight：指定轮询几率，权重值和访问率成正比
+>
+> ip_hash：根据客户端IP分配固定的后端服务器
+
+### 配置模板
+
+![image-20220312162049877](imgs/image-20220312162049877.png)
+
+![image-20220312162059762](imgs/image-20220312162059762.png)
+
+## Nginx TCP/UDP调度
+
+> 模块：--with-stream参数开启4层代理模块
+
+```shell
+stream {
+            upstream backend {
+               server 192.168.2.100:22;     #后端SSH服务器的IP和端口
+               server 192.168.2.200:22;
+}
+            server {
+                listen 12345;                #Nginx监听的端口
+                 proxy_pass backend;
+             }
+}
+```
+
+
+
 ## Nginx状态页面
+
+> 模块：--with-http_stub_status_module
 
 ```shell
 ]# vim /usr/local/nginx/conf/nginx.conf
@@ -79,7 +219,7 @@ gzip_types text/plain text/css application/json application/x-javascript text/xm
 ```shell
 # 如果需要处理大量静态文件，可以将文件缓存在内存，下次访问会更快
 http { 
-open_file_cache          max=2000  inactive=20s;
+open_file_cache  max=2000  inactive=20s;
         open_file_cache_valid    60s;
         open_file_cache_min_uses 5;
         open_file_cache_errors   off;
@@ -217,5 +357,57 @@ Failed requests:        194   # 失败了194个
  21     large_client_header_buffers 2 1k;
 ... ...
 [root@node1 ~]# /usr/local/nginx/sbin/nginx -s reload
+```
+
+## 优化Nginx并发
+
+```shell
+worker_processes  2;                    //与CPU核心数量一致
+worker_connections 65535;        //每个worker最大并发连接数
+
+# 注意还需要调整Linux内核参数中的最大文件数
+]# ulimit -a	#查看所有属性值
+core file size          (blocks, -c) 0
+data seg size           (kbytes, -d) unlimited
+scheduling priority             (-e) 0
+file size               (blocks, -f) unlimited
+pending signals                 (-i) 3802
+max locked memory       (kbytes, -l) 64
+max memory size         (kbytes, -m) unlimited
+open files                      (-n) 1024	#需要调整该选项
+pipe size            (512 bytes, -p) 8
+POSIX message queues     (bytes, -q) 819200
+real-time priority              (-r) 0
+stack size              (kbytes, -s) 8192
+cpu time               (seconds, -t) unlimited
+max user processes              (-u) 3802
+virtual memory          (kbytes, -v) unlimited
+file locks                      (-x) unlimited
+
+]# ulimit -Hn 100000                //设置硬限制（临时规则）
+]# ulimit -Sn 100000                //设置软限制（临时规则）
+]# vim /etc/security/limits.conf
+#用户或组    硬限制或软限制    需要限制的项目   限制的值
+*               soft    nofile            100000
+*               hard    nofile            100000
+```
+
+## 解决414请求URI头部过长问题
+
+```shell
+http {
+client_header_buffer_size    1k;        //默认请求包头信息的缓存    
+large_client_header_buffers  4 4k;        //大请求包头部信息的缓存个数与容量
+.. ..
+}
+```
+
+## 客户端浏览器缓存数据
+
+```shell
+location ~* \.(jpg|jpeg|gif|png|css|js|ico|xml)$ {
+                root bb;
+                expires        30d;	#定义客户端缓存时间为30天
+}
 ```
 
