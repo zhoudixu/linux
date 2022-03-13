@@ -24,7 +24,7 @@ subnet 192.168.4.0 netmask 255.255.255.0 {	#分配网段
 
 
 
-## VSFTP
+## TFTP
 
 ```shell
 #部署pxelinux.0文件
