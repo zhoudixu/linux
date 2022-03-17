@@ -372,3 +372,14 @@ zip -r 备份文件.zip 被归档文件 #归档+压缩
 zip 备份文件.zip -d 目录文件夹 #释放归档+解压
 ```
 
+## jps
+
+```
+#该工具转用于查询Java进程，且显示名称和PID号。需要先安装java开发工具包
+]# yum -y install java-1.8.0-openjdk-devel
+]# jps
+1396 Logstash
+596 WrapperSimpleApp
+1485 Jps
+```
+
