@@ -422,3 +422,14 @@ Host *
 # ssh 有一个非交互方式登录 StrictHostKeyChecking
 ```
 
+## 修改网卡命名规则
+
+```shell
+]# vim   /etc/default/grub      #grub内核引导程序
+...
+GRUB_CMDLINE_LINUX="…….. quiet   net.ifnames=0  biosdevname=0"
+...
+]# grub2-mkconfig  -o  /boot/grub2/grub.cfg  #重新生成网卡命名的规则
+]# reboot         #必须重启操作系统才能完全生效
+```
+

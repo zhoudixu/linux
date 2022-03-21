@@ -1,14 +1,30 @@
 ```shell
+]# git init /var/lib/git/project --bare
+# 初始化一个名为project的裸露的空仓库
+
+]# git remote -v
+# 查看仓库信息
+
 # 客户端用标记用户信息(并非git账户和密码)
 ]# git config --global user.email "tim@tedu.cn"
 ]# git config --global user.name "tim"
-]# cat /root/.gitconfig
+]# cat ~/.gitconfig
 [user]
         email = tim@tedu.cn
         name = tim
 
 # push.default定义如何推送
 ]# git config --global push.default simple
+]# cat ~/.gitconfig
+[user]
+        email = tim@tedu.cn
+        name = tim
+[push]
+        default = simple
+
+]# git log
+]# git log --pretty=oneline
+]# git log --oneline
 
 ]# git branch hotfix	#创建分支
 ]# git checkout hotfix	#切换分支
